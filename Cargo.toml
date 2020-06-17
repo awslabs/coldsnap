@@ -1,0 +1,23 @@
+[package]
+name = "coldsnap"
+version = "0.1.0"
+authors = ["Ben Cressey <bcressey@amazon.com>"]
+license = "Apache-2.0"
+edition = "2018"
+readme = "README.md"
+repository = "https://github.com/awslabs/coldsnap"
+keywords = ["AWS", "Amazon", "EBS", "snapshot"]
+
+[dependencies]
+argh = "0.1.3"
+tokio = "0.2.21"
+sha2 = "0.9.0"
+bytes = "0.5.4"
+base64 = "0.12.2"
+futures = "0.3.5"
+rusoto_core = "0.45.0"
+rusoto_credential = "0.45.0"
+rusoto_ebs = "0.45.0"
+rusoto_signature = "0.45.0"
+snafu = "0.6.8"
+indicatif = "0.15.0"
