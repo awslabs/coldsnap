@@ -1,16 +1,18 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 /*!
-`coldsnap` is a command-line interface that uses the Amazon EBS direct APIs to upload snapshots.
+`coldsnap` is a command-line interface that uses the Amazon EBS direct APIs to upload and download
+snapshots.
 */
 
 use argh::FromArgs;
-use coldsnap::SnapshotUploader;
+use coldsnap::{SnapshotDownloader, SnapshotUploader};
 use indicatif::{ProgressBar, ProgressStyle};
 use rusoto_core::{HttpClient, Region};
 use rusoto_credential::{ChainProvider, ProfileProvider};
 use rusoto_ebs::EbsClient;
-use snafu::ResultExt;
+use snafu::{ensure, ResultExt};
 use std::path::PathBuf;
 
 type Result<T> = std::result::Result<T, error::Error>;
@@ -30,6 +32,28 @@ async fn run() -> Result<()> {
     let args: Args = argh::from_env();
     let client = build_client(args.region, args.endpoint, args.profile)?;
     match args.subcommand {
+        SubCommand::Download(args) => {
+            let downloader = SnapshotDownloader::new(client);
+            ensure!(
+                args.filename.file_name().is_some(),
+                error::ValidateFilename {
+                    path: args.filename
+                }
+            );
+            ensure!(
+                args.force || !args.filename.exists(),
+                error::FileExists {
+                    path: args.filename
+                }
+            );
+
+            let progress_bar = build_progress_bar(args.no_progress, "Downloading");
+            downloader
+                .download_to_file(&args.snapshot_id, &args.filename, progress_bar)
+                .await
+                .context(error::DownloadSnapshot)?;
+        }
+
         SubCommand::Upload(args) => {
             let uploader = SnapshotUploader::new(client);
             let progress_bar = build_progress_bar(args.no_progress, "Uploading");
@@ -138,7 +162,27 @@ struct Args {
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand)]
 enum SubCommand {
+    Download(DownloadArgs),
     Upload(UploadArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "download")]
+/// Download an EBS snapshot into a local file.
+struct DownloadArgs {
+    #[argh(positional)]
+    snapshot_id: String,
+
+    #[argh(positional)]
+    filename: PathBuf,
+
+    #[argh(switch)]
+    /// overwrite an existing file
+    force: bool,
+
+    #[argh(switch)]
+    /// disable the progress bar
+    no_progress: bool,
 }
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -178,6 +222,12 @@ mod error {
             source: rusoto_credential::CredentialsError,
         },
 
+        #[snafu(display("Failed to download snapshot: {}", source))]
+        DownloadSnapshot { source: coldsnap::DownloadError },
+
+        #[snafu(display("Refusing to overwrite existing file '{}' without --force", path.display()))]
+        FileExists { path: std::path::PathBuf },
+
         #[snafu(display("Failed to parse region '{}': {}", region, source))]
         ParseRegion {
             region: String,
@@ -186,5 +236,8 @@ mod error {
 
         #[snafu(display("Failed to upload snapshot: {}", source))]
         UploadSnapshot { source: coldsnap::UploadError },
+
+        #[snafu(display("Failed to validate filename '{}'", path.display()))]
+        ValidateFilename { path: std::path::PathBuf },
     }
 }

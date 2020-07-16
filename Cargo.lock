@@ -192,6 +192,7 @@ dependencies = [
  "rusoto_signature",
  "sha2",
  "snafu",
+ "tempfile",
  "tokio",
 ]
 
