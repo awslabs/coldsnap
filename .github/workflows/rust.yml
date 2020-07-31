@@ -1,0 +1,14 @@
+name: Rust
+on:
+  pull_request:
+    branches: [develop]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - run: rustup update stable
+    - run: cargo build --locked
+    - run: cargo test --locked
+    - run: cargo fmt -- --check
+    - run: cargo clippy --locked -- -D warnings

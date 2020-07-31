@@ -1,11 +1,29 @@
-## My Project
+coldsnap
+--------
+`coldsnap` is a command-line interface that uses the Amazon EBS direct APIs to upload and download snapshots.
 
-TODO: Fill this README out!
+It does not need to launch an EC2 instance or manage EBS volume attachments.
+It can be used to simplify snapshot handling in an automated pipeline.
 
-Be sure to:
+## Usage
 
-* Change the title in this README
-* Edit your repository description on GitHub
+Upload a local file into an EBS snapshot:
+```
+$ coldsnap upload disk.img
+```
+
+Download an EBS snapshot into a local file:
+```
+$ coldsnap download snap-1234 disk.img
+```
+
+Run `coldsnap --help` to see more options.
+
+## Installation
+`coldsnap` can be installed with `cargo`.
+```
+$ cargo install coldsnap
+```
 
 ## Security
 
