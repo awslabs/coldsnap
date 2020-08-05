@@ -39,13 +39,32 @@ let snapshot_id = uploader.upload_from_file(&path, None, None, None)
         .expect("failed to upload snapshot");
 # }
 ```
+
+Waiting for a snapshot to be completed:
+```
+use coldsnap::SnapshotWaiter;
+use rusoto_ec2::Ec2Client;
+
+# async fn doc() {
+let client = Ec2Client::new(rusoto_core::Region::UsWest2);
+let waiter = SnapshotWaiter::new(client);
+
+waiter.wait_for_completed("snap-1234")
+        .await
+        .expect("failed to wait for snapshot");
+# }
+```
 */
 
 mod download;
 mod upload;
+mod wait;
 
 pub use download::Error as DownloadError;
 pub use download::SnapshotDownloader;
 
 pub use upload::Error as UploadError;
 pub use upload::SnapshotUploader;
+
+pub use wait::Error as WaitError;
+pub use wait::{SnapshotWaiter, WaitParams};

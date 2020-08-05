@@ -6,14 +6,19 @@
 snapshots.
 */
 
+#[macro_use]
+mod client;
+
 use argh::FromArgs;
-use coldsnap::{SnapshotDownloader, SnapshotUploader};
+use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
 use indicatif::{ProgressBar, ProgressStyle};
 use rusoto_core::{HttpClient, Region};
 use rusoto_credential::{ChainProvider, ProfileProvider};
 use rusoto_ebs::EbsClient;
+use rusoto_ec2::Ec2Client;
 use snafu::{ensure, ResultExt};
 use std::path::PathBuf;
+use std::time::Duration;
 
 type Result<T> = std::result::Result<T, error::Error>;
 
@@ -30,100 +35,79 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let args: Args = argh::from_env();
-    let client = build_client(args.region, args.endpoint, args.profile)?;
     match args.subcommand {
-        SubCommand::Download(args) => {
+        SubCommand::Download(download_args) => {
+            let client = build_client!(EbsClient, args.region, args.endpoint, args.profile)?;
             let downloader = SnapshotDownloader::new(client);
             ensure!(
-                args.filename.file_name().is_some(),
+                download_args.filename.file_name().is_some(),
                 error::ValidateFilename {
-                    path: args.filename
+                    path: download_args.filename
                 }
             );
             ensure!(
-                args.force || !args.filename.exists(),
+                download_args.force || !download_args.filename.exists(),
                 error::FileExists {
-                    path: args.filename
+                    path: download_args.filename
                 }
             );
 
-            let progress_bar = build_progress_bar(args.no_progress, "Downloading");
+            let progress_bar = build_progress_bar(download_args.no_progress, "Downloading");
             downloader
-                .download_to_file(&args.snapshot_id, &args.filename, progress_bar)
+                .download_to_file(
+                    &download_args.snapshot_id,
+                    &download_args.filename,
+                    progress_bar,
+                )
                 .await
                 .context(error::DownloadSnapshot)?;
         }
 
-        SubCommand::Upload(args) => {
+        SubCommand::Upload(upload_args) => {
+            let client = build_client!(
+                EbsClient,
+                args.region.clone(),
+                args.endpoint.clone(),
+                args.profile.clone()
+            )?;
             let uploader = SnapshotUploader::new(client);
-            let progress_bar = build_progress_bar(args.no_progress, "Uploading");
+            let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
             let snapshot_id = uploader
                 .upload_from_file(
-                    &args.filename,
-                    args.volume_size,
-                    args.description.as_deref(),
+                    &upload_args.filename,
+                    upload_args.volume_size,
+                    upload_args.description.as_deref(),
                     progress_bar,
                 )
                 .await
                 .context(error::UploadSnapshot)?;
             println!("{}", snapshot_id);
+            if upload_args.wait {
+                let client = build_client!(Ec2Client, args.region, args.endpoint, args.profile)?;
+                let waiter = SnapshotWaiter::new(client);
+                waiter
+                    .wait_for_completed(&snapshot_id)
+                    .await
+                    .context(error::WaitSnapshot)?;
+            }
+        }
+
+        SubCommand::Wait(wait_args) => {
+            let client = build_client!(Ec2Client, args.region, args.endpoint, args.profile)?;
+            let waiter = SnapshotWaiter::new(client);
+            let wait_params = WaitParams::new(
+                wait_args.desired_status,
+                wait_args.successes_required,
+                wait_args.max_attempts,
+                wait_args.seconds_between_attempts,
+            );
+            waiter
+                .wait(wait_args.snapshot_id, wait_params)
+                .await
+                .context(error::WaitSnapshot)?;
         }
     }
     Ok(())
-}
-
-/// Create an EBS client using the default region, endpoint, and credentials.
-/// The behavior can be overriden by command line options. We don't expose the
-/// full range of configuration options but this should cover most scenarios.
-fn build_client(
-    region: Option<String>,
-    endpoint: Option<String>,
-    profile: Option<String>,
-) -> Result<EbsClient> {
-    let http_client = HttpClient::new().context(error::CreateHttpClient)?;
-    let profile_provider = match profile {
-        Some(profile) => {
-            let mut p = ProfileProvider::new().context(error::CreateProfileProvider)?;
-            p.set_profile(profile);
-            Some(p)
-        }
-        None => None,
-    };
-
-    let profile_region = profile_provider
-        .as_ref()
-        .and_then(|p| p.region_from_profile().ok().flatten());
-
-    let region = parse_region(region)?.or(parse_region(profile_region)?);
-
-    let region = match (region, endpoint) {
-        (Some(region), Some(endpoint)) => Region::Custom {
-            name: region.name().to_string(),
-            endpoint,
-        },
-        (Some(region), None) => region,
-        (None, Some(endpoint)) => Region::Custom {
-            name: Region::default().name().to_string(),
-            endpoint,
-        },
-        (None, None) => Region::default(),
-    };
-
-    match profile_provider {
-        Some(provider) => Ok(EbsClient::new_with(http_client, provider, region)),
-        None => Ok(EbsClient::new_with(
-            http_client,
-            ChainProvider::new(),
-            region,
-        )),
-    }
-}
-
-/// Parse an optional string into a known region.
-fn parse_region(region: Option<String>) -> Result<Option<Region>> {
-    region
-        .map(|r| r.parse().context(error::ParseRegion { region: r }))
-        .transpose()
 }
 
 /// Create a progress bar to show status of snapshot blocks, if wanted.
@@ -164,6 +148,7 @@ struct Args {
 enum SubCommand {
     Download(DownloadArgs),
     Upload(UploadArgs),
+    Wait(WaitArgs),
 }
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -203,6 +188,43 @@ struct UploadArgs {
     #[argh(switch)]
     /// disable the progress bar
     no_progress: bool,
+
+    #[argh(switch)]
+    /// wait for snapshot to be in "completed" state
+    wait: bool,
+}
+
+/// Turn a user-specified duration in seconds into a Duration object, for argh parsing.
+fn seconds_from_str(input: &str) -> std::result::Result<Duration, String> {
+    let seconds: u64 = input
+        .parse()
+        .map_err(|e: std::num::ParseIntError| e.to_string())?;
+    Ok(Duration::from_secs(seconds))
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "wait")]
+/// Wait for an EBS snapshot to be in a desired state.
+struct WaitArgs {
+    #[argh(positional)]
+    /// the ID of the snapshot to wait for
+    snapshot_id: String,
+
+    #[argh(option)]
+    /// the desired status to wait for, like "completed"
+    desired_status: Option<String>,
+
+    #[argh(option)]
+    /// the number of successful checks in a row to consider the wait completed
+    successes_required: Option<u8>,
+
+    #[argh(option)]
+    /// check at most this many times before giving up
+    max_attempts: Option<u8>,
+
+    #[argh(option, from_str_fn(seconds_from_str))]
+    /// wait this many seconds between queries to check snapshot status
+    seconds_between_attempts: Option<Duration>,
 }
 
 /// Potential errors during `coldsnap` execution.
@@ -239,5 +261,8 @@ mod error {
 
         #[snafu(display("Failed to validate filename '{}'", path.display()))]
         ValidateFilename { path: std::path::PathBuf },
+
+        #[snafu(display("Failed to wait for snapshot: {}", source))]
+        WaitSnapshot { source: coldsnap::WaitError },
     }
 }
