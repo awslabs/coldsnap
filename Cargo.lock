@@ -87,9 +87,9 @@ checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
 name = "base64"
-version = "0.12.2"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e223af0dc48c96d4f8342ec01a4974f139df863896b316681efd36742f22cc67"
+checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
 name = "bitflags"
@@ -182,7 +182,7 @@ name = "coldsnap"
 version = "0.1.0"
 dependencies = [
  "argh",
- "base64 0.12.2",
+ "base64 0.12.3",
  "bytes",
  "futures",
  "indicatif",
@@ -1018,7 +1018,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e977941ee0658df96fca7291ecc6fc9a754600b21ad84b959eb1dbbc9d5abcc7"
 dependencies = [
  "async-trait",
- "base64 0.12.2",
+ "base64 0.12.3",
  "bytes",
  "crc32fast",
  "futures",
@@ -1094,7 +1094,7 @@ version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97a740a88dde8ded81b6f2cff9cd5e054a5a2e38a38397260f7acdd2c85d17dd"
 dependencies = [
- "base64 0.12.2",
+ "base64 0.12.3",
  "bytes",
  "futures",
  "hex",
