@@ -129,7 +129,7 @@ impl SnapshotWaiter {
                             }
                             // If the state was error, we know we'll never hit their desired state.
                             // (Unless they desired "error", which will be caught above.)
-                            ensure!(found_state != "error", error::ErrorState);
+                            ensure!(found_state != "error", error::State);
                         }
                     }
                 }
@@ -161,7 +161,7 @@ mod error {
         },
 
         #[snafu(display("Snapshot went to 'error' state"))]
-        ErrorState,
+        State,
 
         #[snafu(display("Failed to reach desired state within {} attempts", max_attempts))]
         MaxAttempts { max_attempts: u8 },

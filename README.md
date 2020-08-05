@@ -12,6 +12,16 @@ Upload a local file into an EBS snapshot:
 $ coldsnap upload disk.img
 ```
 
+If you want to wait for the uploaded snapshot to be in "available" state, add `--wait`:
+```
+$ coldsnap upload --wait disk.img
+```
+
+Alternately, you can use `coldsnap wait`, which offers more flexibility in terms of wait duration and behavior.
+```
+$ coldsnap wait snap-1234
+```
+
 Download an EBS snapshot into a local file:
 ```
 $ coldsnap download snap-1234 disk.img
