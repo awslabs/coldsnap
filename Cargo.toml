@@ -9,6 +9,11 @@ readme = "README.md"
 repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
+[features]
+default = ["rusoto-native-tls"]
+rusoto-native-tls = ["rusoto_core/native-tls", "rusoto_ebs/native-tls", "rusoto_ec2/native-tls"]
+rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
+
 [dependencies]
 argh = "0.1.3"
 tokio = "0.2.21"
@@ -16,10 +21,10 @@ sha2 = "0.9.0"
 bytes = "0.5.6"
 base64 = "0.13.0"
 futures = "0.3.6"
-rusoto_core = "0.45.0"
+rusoto_core = { version = "0.45.0", default-features = false }
 rusoto_credential = "0.45.0"
-rusoto_ebs = "0.45.0"
-rusoto_ec2 = "0.45.0"
+rusoto_ebs = { version = "0.45.0", default-features = false }
+rusoto_ec2 = { version = "0.45.0", default-features = false }
 rusoto_signature = "0.45.0"
 snafu = "0.6.9"
 indicatif = "0.15.0"

@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [develop]
 jobs:
-  build:
+  build-default:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -12,3 +12,17 @@ jobs:
     - run: cargo test --locked
     - run: cargo fmt -- --check
     - run: cargo clippy --locked -- -D warnings
+  build-rustls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: rustup update stable
+      - run: cargo build --features rusoto-rustls --no-default-features --locked
+      - run: cargo test --features rusoto-rustls --no-default-features --locked
+  build-native-tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: rustup update stable
+      - run: cargo build --features rusoto-native-tls --no-default-features --locked
+      - run: cargo test --features rusoto-native-tls --no-default-features --locked
