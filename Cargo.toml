@@ -20,7 +20,7 @@ tokio = "0.2.21"
 sha2 = "0.9.0"
 bytes = "0.5.6"
 base64 = "0.13.0"
-futures = "0.3.6"
+futures = "0.3.8"
 rusoto_core = { version = "0.45.0", default-features = false }
 rusoto_credential = "0.45.0"
 rusoto_ebs = { version = "0.45.0", default-features = false }
