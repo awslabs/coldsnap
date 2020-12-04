@@ -70,7 +70,7 @@ impl SnapshotUploader {
         let min_volume_size = cmp::max((file_size + GIBIBYTE - 1) / GIBIBYTE, 1);
 
         // If a volume size was provided, make sure it will be big enough.
-        let volume_size = volume_size.unwrap_or_else(|| min_volume_size);
+        let volume_size = volume_size.unwrap_or(min_volume_size);
         ensure!(
             volume_size >= min_volume_size,
             error::BadVolumeSize {
