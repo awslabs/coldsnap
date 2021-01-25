@@ -57,7 +57,7 @@ impl SnapshotDownloader {
         progress_bar: Option<ProgressBar>,
     ) -> Result<()> {
         let path = path.as_ref();
-        let target_file = path.file_name().context(error::ValidateFileName { path })?;
+        let _ = path.file_name().context(error::ValidateFileName { path })?;
         let target_dir = path
             .parent()
             .context(error::ValidateParentDirectory { path })?;
@@ -167,8 +167,8 @@ impl SnapshotDownloader {
         }
 
         temp_path
-            .persist(target_file)
-            .context(error::PersistTempFile { path: target_file })?;
+            .persist(&path)
+            .context(error::PersistTempFile { path })?;
 
         Ok(())
     }
