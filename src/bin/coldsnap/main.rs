@@ -40,15 +40,15 @@ async fn run() -> Result<()> {
             let client = build_client!(EbsClient, args.region, args.endpoint, args.profile)?;
             let downloader = SnapshotDownloader::new(client);
             ensure!(
-                download_args.filename.file_name().is_some(),
+                download_args.file.file_name().is_some(),
                 error::ValidateFilename {
-                    path: download_args.filename
+                    path: download_args.file
                 }
             );
             ensure!(
-                download_args.force || !download_args.filename.exists(),
+                download_args.force || !download_args.file.exists(),
                 error::FileExists {
-                    path: download_args.filename
+                    path: download_args.file
                 }
             );
 
@@ -56,7 +56,7 @@ async fn run() -> Result<()> {
             downloader
                 .download_to_file(
                     &download_args.snapshot_id,
-                    &download_args.filename,
+                    &download_args.file,
                     progress_bar,
                 )
                 .await
@@ -74,7 +74,7 @@ async fn run() -> Result<()> {
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
             let snapshot_id = uploader
                 .upload_from_file(
-                    &upload_args.filename,
+                    &upload_args.file,
                     upload_args.volume_size,
                     upload_args.description.as_deref(),
                     progress_bar,
@@ -159,7 +159,7 @@ struct DownloadArgs {
     snapshot_id: String,
 
     #[argh(positional)]
-    filename: PathBuf,
+    file: PathBuf,
 
     #[argh(switch)]
     /// overwrite an existing file
@@ -175,7 +175,7 @@ struct DownloadArgs {
 /// Upload a local file into an EBS snapshot.
 struct UploadArgs {
     #[argh(positional)]
-    filename: PathBuf,
+    file: PathBuf,
 
     #[argh(option)]
     /// the size of the volume
