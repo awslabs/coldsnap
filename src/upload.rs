@@ -20,8 +20,10 @@ use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::time;
 
 #[derive(Debug, Snafu)]
 pub struct Error(error::Error);
@@ -29,7 +31,11 @@ type Result<T> = std::result::Result<T, Error>;
 
 const GIBIBYTE: i64 = 1024 * 1024 * 1024;
 const SNAPSHOT_BLOCK_WORKERS: usize = 64;
-const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 3;
+// How long to wait between attempts; this number * attempt number, in seconds.
+const SNAPSHOT_BLOCK_RETRY_SCALE: u64 = 2;
+// 12 retries with scale 2 gives us 132 seconds, chosen because it got past "snapshot does not
+// exist" errors in testing.
+const SNAPSHOT_BLOCK_ATTEMPTS: u64 = 12;
 const SNAPSHOT_TIMEOUT_MINUTES: i64 = 10;
 const SHA256_ALGORITHM: &str = "SHA256";
 const LINEAR_METHOD: &str = "LINEAR";
@@ -145,7 +151,10 @@ impl SnapshotUploader {
         let upload = stream::iter(block_contexts).for_each_concurrent(
             SNAPSHOT_BLOCK_WORKERS,
             |context| async move {
-                for _ in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                for attempt in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                    // Increasing wait between attempts.  (No wait to start, on 0th attempt.)
+                    time::sleep(Duration::from_secs(attempt * SNAPSHOT_BLOCK_RETRY_SCALE)).await;
+
                     let block_result = self.upload_block(&context).await;
                     let mut block_errors = context.block_errors.lock().expect("poisoned");
                     if let Err(e) = block_result {
