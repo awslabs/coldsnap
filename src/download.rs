@@ -301,8 +301,8 @@ impl SnapshotDownloader {
             data_length > 0 && data_length <= block_size && data_length == block_data_length,
             error::UnexpectedBlockDataLength {
                 snapshot_id,
-                data_length,
                 block_index,
+                data_length,
             }
         );
 
