@@ -6,7 +6,7 @@ jobs:
   build-default:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v2.3.4
     - run: rustup update stable
     - run: cargo build --locked
     - run: cargo test --locked
@@ -15,14 +15,14 @@ jobs:
   build-rustls:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v2.3.4
       - run: rustup update stable
       - run: cargo build --features rusoto-rustls --no-default-features --locked
       - run: cargo test --features rusoto-rustls --no-default-features --locked
   build-native-tls:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v2.3.4
       - run: rustup update stable
       - run: cargo build --features rusoto-native-tls --no-default-features --locked
       - run: cargo test --features rusoto-native-tls --no-default-features --locked
