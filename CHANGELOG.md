@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.1] - 2021-05-13
 ### Changed
 - Add backoff-retry behavior to coldsnap uploads.  [#56]
-- Update dependencies.  [#48], [#50], [#51], [#54], [#55], [#58]
+- Update dependencies.  [#48], [#50], [#51], [#54], [#55], [#58], [#60]
 - Fix clippy warnings for Rust 1.52.  [#57]
 
 ## [0.3.0] - 2021-02-25
@@ -41,3 +41,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#56]: https://github.com/awslabs/coldsnap/pull/56
 [#57]: https://github.com/awslabs/coldsnap/pull/57
 [#58]: https://github.com/awslabs/coldsnap/pull/58
+[#60]: https://github.com/awslabs/coldsnap/pull/60
