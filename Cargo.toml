@@ -27,5 +27,5 @@ rusoto_ebs = { version = "0.46.0", default-features = false }
 rusoto_ec2 = { version = "0.46.0", default-features = false }
 rusoto_signature = "0.46.0"
 snafu = "0.6.9"
-indicatif = "0.16.0"
+indicatif = "0.16.2"
 tempfile = "3.1.0"
