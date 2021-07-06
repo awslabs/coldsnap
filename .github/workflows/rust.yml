@@ -3,33 +3,53 @@ on:
   pull_request:
     branches: [develop]
 jobs:
-  build-default:
+  build:
+    strategy:
+      matrix:
+        include:
+          - features: default
+          - features: rusoto-rustls
+            additional_flags: --no-default-features
+          - features: rusoto-native-tls
+            additional_flags: --no-default-features
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          .cargo
+          target
+        # you can edit the .github/cache_bust file if you need to clear the cache
+        key: ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-${{ matrix.features }}
     - run: rustup update stable
-    - run: cargo build --locked
-    - run: cargo test --locked
-    - run: cargo fmt -- --check
-    - run: cargo clippy --locked -- -D warnings
-  build-rustls:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - run: rustup update stable
-      - run: cargo build --features rusoto-rustls --no-default-features --locked
-      - run: cargo test --features rusoto-rustls --no-default-features --locked
-  build-native-tls:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - run: rustup update stable
-      - run: cargo build --features rusoto-native-tls --no-default-features --locked
-      - run: cargo test --features rusoto-native-tls --no-default-features --locked
-  check-licenses:
+    - run: echo "CARGO_HOME=${{ github.workspace }}/.cargo" >> $GITHUB_ENV
+    - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+    - run: cargo test --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+  check:
+    strategy:
+      matrix:
+        include:
+          - id: format
+            run: cargo fmt -- --check
+          - id: clippy
+            run: cargo clippy --locked -- -D warnings
+          - id: licenses
+            run: cargo install --version 0.6.2 cargo-deny --no-default-features
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: |
+          .cargo
+          target
+        # you can edit the .github/cache_bust file if you need to clear the cache
+        key: ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-${{ matrix.id }}
     - run: rustup update stable
-    - run: cargo install --version 0.6.2 cargo-deny --no-default-features
-    - run: cargo deny check --disable-fetch licenses
+    - run: echo "CARGO_HOME=${{ github.workspace }}/.cargo" >> $GITHUB_ENV
+    - run: ${{matrix.run}}
