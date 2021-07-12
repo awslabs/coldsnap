@@ -32,7 +32,7 @@ Run `coldsnap --help` to see more options.
 ## Installation
 `coldsnap` can be installed with `cargo`.
 ```
-$ cargo install coldsnap
+$ cargo install --locked coldsnap
 ```
 
 ## Security
