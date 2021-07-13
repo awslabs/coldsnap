@@ -30,6 +30,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - id: cache-cargo-deny
+      uses: actions/cache@v2
+      with:
+        path: ~/.cargo/bin/cargo-deny
+        # you can edit the .github/cache_bust file if you need to clear the cache
+        key: ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ hashFiles('.github/cache_bust') }}-${{ runner.os }}-
     - run: rustup update stable
-    - run: cargo install --version 0.6.2 cargo-deny --no-default-features
+    - if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
+      run: cargo install --version 0.6.2 cargo-deny --no-default-features
     - run: cargo deny check --disable-fetch licenses
