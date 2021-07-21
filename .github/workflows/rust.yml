@@ -1,35 +1,42 @@
 name: Rust
 on:
+  # triggers when a PR is posted
   pull_request:
     branches: [develop]
+    paths-ignore:
+      - '**.md'
+  # triggers when a PR is merged
+  push:
+    branches: [develop]
+    paths-ignore:
+      - '**.md'
 jobs:
-  build-default:
+  build:
+    strategy:
+      matrix:
+        include:
+          - features: default
+          - features: rusoto-rustls
+            additional_flags: --no-default-features
+          - features: rusoto-native-tls
+            additional_flags: --no-default-features
+    env:
+       CARGO_HOME: .cargo
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - run: rustup update stable
-    - run: cargo build --locked
-    - run: cargo test --locked
+    - uses: actions/cache@v2
+      with:
+        path: |
+          .cargo
+          target
+        # you can edit the .github/cache_bust file if you need to clear the cache
+        key: ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}
+    - run: cargo test --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+    - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+    - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
     - run: cargo fmt -- --check
-    - run: cargo clippy --locked -- -D warnings
-  build-rustls:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - run: rustup update stable
-      - run: cargo build --features rusoto-rustls --no-default-features --locked
-      - run: cargo test --features rusoto-rustls --no-default-features --locked
-  build-native-tls:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - run: rustup update stable
-      - run: cargo build --features rusoto-native-tls --no-default-features --locked
-      - run: cargo test --features rusoto-native-tls --no-default-features --locked
-  check-licenses:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - run: rustup update stable
-    - run: cargo install --version 0.6.2 cargo-deny --no-default-features
+    - run: cargo install --version 0.6.2 cargo-deny --no-default-features --locked
     - run: cargo deny check --disable-fetch licenses
