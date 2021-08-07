@@ -5,6 +5,7 @@
 Download Amazon EBS snapshots.
 */
 
+use crate::block_device::get_block_device_size;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
@@ -16,7 +17,6 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io::SeekFrom;
 use std::os::unix::fs::FileTypeExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
@@ -391,12 +391,6 @@ struct BlockContext {
     ebs_client: EbsClient,
 }
 
-/// Generates the blkgetsize64 function.
-mod ioctl {
-    use nix::ioctl_read;
-    ioctl_read!(blkgetsize64, 0x12, 114, u64);
-}
-
 /// Potential errors while downloading a snapshot and writing to a local file.
 mod error {
     use snafu::Snafu;
@@ -411,11 +405,8 @@ mod error {
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to get block device size: {}", source))]
-        GetBlockDeviceSize { source: nix::Error },
-
-        #[snafu(display("Invalid block device size: {}", result))]
-        InvalidBlockDeviceSize { result: i32 },
+        #[snafu(display("{}", source))]
+        GetBlockDeviceSize { source: crate::block_device::Error },
 
         #[snafu(display(
             "Block device too small: block device size {} GiB, needed at least {} GiB",
@@ -629,23 +620,7 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
     // ensures existing size >= length, but otherwise leaves untouched
     async fn grow(&mut self, length: i64) -> Result<()> {
         let path = self.as_ref();
-        let file = OpenOptions::new()
-            .read(true)
-            .open(path)
-            .await
-            .context(error::OpenFile { path })?;
-
-        let mut block_device_size = 0;
-        let result = unsafe { ioctl::blkgetsize64(file.as_raw_fd(), &mut block_device_size) }
-            .context(error::GetBlockDeviceSize)?;
-        ensure!(result == 0, error::InvalidBlockDeviceSize { result });
-
-        let block_device_size =
-            i64::try_from(block_device_size).with_context(|| error::ConvertNumber {
-                what: "block device size",
-                number: block_device_size.to_string(),
-                target: "i64",
-            })?;
+        let block_device_size = get_block_device_size(path).context(error::GetBlockDeviceSize)?;
 
         // Make sure the block device is big enough to hold the snapshot
         ensure!(
