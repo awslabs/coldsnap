@@ -393,7 +393,7 @@ struct BlockContext {
 
 /// Shared interface for write targets.
 #[async_trait]
-trait SnapshotWriteTarget: AsRef<Path> {
+trait SnapshotWriteTarget {
     // grow the target to the desired length
     async fn grow(&mut self, length: i64) -> Result<()>;
 
@@ -433,17 +433,11 @@ impl BlockDeviceTarget {
     }
 }
 
-impl AsRef<Path> for BlockDeviceTarget {
-    fn as_ref(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
 #[async_trait]
 impl SnapshotWriteTarget for BlockDeviceTarget {
     // ensures existing size >= length, but otherwise leaves untouched
     async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.as_ref();
+        let path = self.path.as_path();
         let block_device_size = get_block_device_size(path).context(error::GetBlockDeviceSize)?;
 
         // Make sure the block device is big enough to hold the snapshot
@@ -460,7 +454,7 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
 
     // returns the file path to which blocks must be written
     fn write_path(&self) -> Result<&Path> {
-        Ok(self.as_ref())
+        Ok(self.path.as_path())
     }
 
     // no-op
@@ -485,17 +479,11 @@ impl FileTarget {
     }
 }
 
-impl AsRef<Path> for FileTarget {
-    fn as_ref(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
 #[async_trait]
 impl SnapshotWriteTarget for FileTarget {
     // truncate file to desired size
     async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.as_ref();
+        let path = self.path.as_path();
 
         // Create a temporary file and extend it to the required size.
         let target_dir = path
@@ -534,10 +522,10 @@ impl SnapshotWriteTarget for FileTarget {
     fn finalize(&mut self) -> Result<()> {
         let temp_file = self.temp_file.take().context(error::MissingTempFile {})?;
 
-        let path = self.as_ref();
+        let path = self.path.as_path();
         temp_file
             .into_temp_path()
-            .persist(&path)
+            .persist(path)
             .context(error::PersistTempFile { path })?;
 
         Ok(())
