@@ -5,6 +5,7 @@
 Download Amazon EBS snapshots.
 */
 
+use crate::block_device::get_block_device_size;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
@@ -16,7 +17,6 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io::SeekFrom;
 use std::os::unix::fs::FileTypeExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
@@ -391,10 +391,145 @@ struct BlockContext {
     ebs_client: EbsClient,
 }
 
-/// Generates the blkgetsize64 function.
-mod ioctl {
-    use nix::ioctl_read;
-    ioctl_read!(blkgetsize64, 0x12, 114, u64);
+/// Shared interface for write targets.
+#[async_trait]
+trait SnapshotWriteTarget {
+    // grow the target to the desired length
+    async fn grow(&mut self, length: i64) -> Result<()>;
+
+    // returns the file path to which blocks must be written
+    fn write_path(&self) -> Result<&Path>;
+
+    // persist the contents to disk
+    fn finalize(&mut self) -> Result<()>;
+}
+
+/// Implements file operations for block devices.
+struct BlockDeviceTarget {
+    path: PathBuf,
+}
+
+impl BlockDeviceTarget {
+    fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
+        let path = path.as_ref();
+        Ok(Box::new(BlockDeviceTarget { path: path.into() }))
+    }
+
+    async fn is_valid<P: AsRef<Path>>(path: P) -> Result<bool> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(false);
+        }
+
+        let file_meta = fs::metadata(path)
+            .await
+            .context(error::ReadFileMetadata { path })?;
+
+        if file_meta.file_type().is_block_device() {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[async_trait]
+impl SnapshotWriteTarget for BlockDeviceTarget {
+    // ensures existing size >= length, but otherwise leaves untouched
+    async fn grow(&mut self, length: i64) -> Result<()> {
+        let path = self.path.as_path();
+        let block_device_size = get_block_device_size(path).context(error::GetBlockDeviceSize)?;
+
+        // Make sure the block device is big enough to hold the snapshot
+        ensure!(
+            block_device_size >= length,
+            error::BlockDeviceTooSmall {
+                block_device_size: block_device_size / GIBIBYTE,
+                needed: length / GIBIBYTE,
+            }
+        );
+
+        Ok(())
+    }
+
+    // returns the file path to which blocks must be written
+    fn write_path(&self) -> Result<&Path> {
+        Ok(self.path.as_path())
+    }
+
+    // no-op
+    fn finalize(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// Implements file operations for filesystem files.
+struct FileTarget {
+    path: PathBuf,
+    temp_file: Option<NamedTempFile>,
+}
+
+impl FileTarget {
+    fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
+        let path = path.as_ref();
+        Ok(Box::new(FileTarget {
+            path: path.into(),
+            temp_file: None,
+        }))
+    }
+}
+
+#[async_trait]
+impl SnapshotWriteTarget for FileTarget {
+    // truncate file to desired size
+    async fn grow(&mut self, length: i64) -> Result<()> {
+        let path = self.path.as_path();
+
+        // Create a temporary file and extend it to the required size.
+        let target_dir = path
+            .parent()
+            .context(error::ValidateParentDirectory { path })?;
+
+        let temp_file = NamedTempFile::new_in(target_dir)
+            .context(error::CreateTempFile { path: target_dir })?;
+
+        let temp_file_len = length;
+        let temp_file_len = u64::try_from(temp_file_len).with_context(|| error::ConvertNumber {
+            what: "temp file length",
+            number: temp_file_len.to_string(),
+            target: "u64",
+        })?;
+
+        temp_file
+            .as_file()
+            .set_len(temp_file_len)
+            .context(error::ExtendTempFile {
+                path: temp_file.as_ref(),
+            })?;
+
+        self.temp_file.replace(temp_file);
+
+        Ok(())
+    }
+
+    fn write_path(&self) -> Result<&Path> {
+        let write_path = self.temp_file.as_ref().context(error::MissingTempFile {})?;
+
+        Ok(write_path.as_ref())
+    }
+
+    // persist file to destination
+    fn finalize(&mut self) -> Result<()> {
+        let temp_file = self.temp_file.take().context(error::MissingTempFile {})?;
+
+        let path = self.path.as_path();
+        temp_file
+            .into_temp_path()
+            .persist(path)
+            .context(error::PersistTempFile { path })?;
+
+        Ok(())
+    }
 }
 
 /// Potential errors while downloading a snapshot and writing to a local file.
@@ -411,11 +546,8 @@ mod error {
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to get block device size: {}", source))]
-        GetBlockDeviceSize { source: nix::Error },
-
-        #[snafu(display("Invalid block device size: {}", result))]
-        InvalidBlockDeviceSize { result: i32 },
+        #[snafu(display("{}", source))]
+        GetBlockDeviceSize { source: crate::block_device::Error },
 
         #[snafu(display(
             "Block device too small: block device size {} GiB, needed at least {} GiB",
@@ -573,174 +705,5 @@ mod error {
             target: String,
             source: std::num::TryFromIntError,
         },
-    }
-}
-
-/// Shared interface for write targets.
-#[async_trait]
-trait SnapshotWriteTarget: AsRef<Path> {
-    // grow the target to the desired length
-    async fn grow(&mut self, length: i64) -> Result<()>;
-
-    // returns the file path to which blocks must be written
-    fn write_path(&self) -> Result<&Path>;
-
-    // persist the contents to disk
-    fn finalize(&mut self) -> Result<()>;
-}
-
-/// Implements file operations for block devices.
-struct BlockDeviceTarget {
-    path: PathBuf,
-}
-
-impl BlockDeviceTarget {
-    fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
-        let path = path.as_ref();
-        Ok(Box::new(BlockDeviceTarget { path: path.into() }))
-    }
-
-    async fn is_valid<P: AsRef<Path>>(path: P) -> Result<bool> {
-        let path = path.as_ref();
-        if !path.exists() {
-            return Ok(false);
-        }
-
-        let file_meta = fs::metadata(path)
-            .await
-            .context(error::ReadFileMetadata { path })?;
-
-        if file_meta.file_type().is_block_device() {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-}
-
-impl AsRef<Path> for BlockDeviceTarget {
-    fn as_ref(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-#[async_trait]
-impl SnapshotWriteTarget for BlockDeviceTarget {
-    // ensures existing size >= length, but otherwise leaves untouched
-    async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.as_ref();
-        let file = OpenOptions::new()
-            .read(true)
-            .open(path)
-            .await
-            .context(error::OpenFile { path })?;
-
-        let mut block_device_size = 0;
-        let result = unsafe { ioctl::blkgetsize64(file.as_raw_fd(), &mut block_device_size) }
-            .context(error::GetBlockDeviceSize)?;
-        ensure!(result == 0, error::InvalidBlockDeviceSize { result });
-
-        let block_device_size =
-            i64::try_from(block_device_size).with_context(|| error::ConvertNumber {
-                what: "block device size",
-                number: block_device_size.to_string(),
-                target: "i64",
-            })?;
-
-        // Make sure the block device is big enough to hold the snapshot
-        ensure!(
-            block_device_size >= length,
-            error::BlockDeviceTooSmall {
-                block_device_size: block_device_size / GIBIBYTE,
-                needed: length / GIBIBYTE,
-            }
-        );
-
-        Ok(())
-    }
-
-    // returns the file path to which blocks must be written
-    fn write_path(&self) -> Result<&Path> {
-        Ok(self.as_ref())
-    }
-
-    // no-op
-    fn finalize(&mut self) -> Result<()> {
-        Ok(())
-    }
-}
-
-/// Implements file operations for filesystem files.
-struct FileTarget {
-    path: PathBuf,
-    temp_file: Option<NamedTempFile>,
-}
-
-impl FileTarget {
-    fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
-        let path = path.as_ref();
-        Ok(Box::new(FileTarget {
-            path: path.into(),
-            temp_file: None,
-        }))
-    }
-}
-
-impl AsRef<Path> for FileTarget {
-    fn as_ref(&self) -> &Path {
-        self.path.as_ref()
-    }
-}
-
-#[async_trait]
-impl SnapshotWriteTarget for FileTarget {
-    // truncate file to desired size
-    async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.as_ref();
-
-        // Create a temporary file and extend it to the required size.
-        let target_dir = path
-            .parent()
-            .context(error::ValidateParentDirectory { path })?;
-
-        let temp_file = NamedTempFile::new_in(target_dir)
-            .context(error::CreateTempFile { path: target_dir })?;
-
-        let temp_file_len = length;
-        let temp_file_len = u64::try_from(temp_file_len).with_context(|| error::ConvertNumber {
-            what: "temp file length",
-            number: temp_file_len.to_string(),
-            target: "u64",
-        })?;
-
-        temp_file
-            .as_file()
-            .set_len(temp_file_len)
-            .context(error::ExtendTempFile {
-                path: temp_file.as_ref(),
-            })?;
-
-        self.temp_file.replace(temp_file);
-
-        Ok(())
-    }
-
-    fn write_path(&self) -> Result<&Path> {
-        let write_path = self.temp_file.as_ref().context(error::MissingTempFile {})?;
-
-        Ok(write_path.as_ref())
-    }
-
-    // persist file to destination
-    fn finalize(&mut self) -> Result<()> {
-        let temp_file = self.temp_file.take().context(error::MissingTempFile {})?;
-
-        let path = self.as_ref();
-        temp_file
-            .into_temp_path()
-            .persist(&path)
-            .context(error::PersistTempFile { path })?;
-
-        Ok(())
     }
 }

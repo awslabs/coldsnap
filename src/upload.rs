@@ -5,6 +5,7 @@
 Upload Amazon EBS snapshots.
 */
 
+use crate::block_device::get_block_device_size;
 use bytes::BytesMut;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
@@ -17,6 +18,7 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::io::SeekFrom;
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
@@ -70,7 +72,16 @@ impl SnapshotUploader {
                 .to_string_lossy()
                 .to_string()
         });
-        let file_size = self.file_size(path).await?;
+
+        let file_meta = fs::metadata(path)
+            .await
+            .context(error::ReadFileMetadata { path })?;
+
+        let file_size = if file_meta.file_type().is_block_device() {
+            get_block_device_size(path).context(error::GetBlockDeviceSize)?
+        } else {
+            self.file_size(&file_meta).await?
+        };
 
         // EBS snapshots must be multiples of 1 GiB in size.
         let min_volume_size = cmp::max((file_size + GIBIBYTE - 1) / GIBIBYTE, 1);
@@ -214,10 +225,7 @@ impl SnapshotUploader {
     }
 
     /// Find the size of a file.
-    async fn file_size(&self, path: &Path) -> Result<i64> {
-        let file_meta = fs::metadata(path)
-            .await
-            .context(error::ReadFileSize { path })?;
+    async fn file_size(&self, file_meta: &std::fs::Metadata) -> Result<i64> {
         let file_len = file_meta.len();
         let file_len = i64::try_from(file_len).with_context(|| error::ConvertNumber {
             what: "file length",
@@ -392,11 +400,14 @@ mod error {
     #[derive(Debug, Snafu)]
     #[snafu(visibility = "pub(super)")]
     pub(super) enum Error {
-        #[snafu(display("Failed to read size for '{}': {}", path.display(), source))]
-        ReadFileSize {
+        #[snafu(display("Failed to read metadata for '{}': {}", path.display(), source))]
+        ReadFileMetadata {
             path: PathBuf,
             source: std::io::Error,
         },
+
+        #[snafu(display("{}", source))]
+        GetBlockDeviceSize { source: crate::block_device::Error },
 
         #[snafu(display(
             "Bad volume size: requested {} GiB, needed at least {} GiB",
