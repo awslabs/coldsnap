@@ -28,8 +28,8 @@ pub struct Error(error::Error);
 type Result<T> = std::result::Result<T, Error>;
 
 const GIBIBYTE: i64 = 1024 * 1024 * 1024;
-const SNAPSHOT_BLOCK_WORKERS: usize = 64;
-const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 3;
+const SNAPSHOT_BLOCK_WORKERS: usize = 1000;
+const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 5;
 const SHA256_ALGORITHM: &str = "SHA256";
 
 // ListSnapshotBlocks allows us to specify how many blocks are returned in each
