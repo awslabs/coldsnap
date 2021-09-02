@@ -10,7 +10,7 @@ repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
 [features]
-default = ["rusoto-native-tls"]
+default = ["rusoto-rustls"]
 rusoto-native-tls = ["rusoto_core/native-tls", "rusoto_ebs/native-tls", "rusoto_ec2/native-tls"]
 rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
 
