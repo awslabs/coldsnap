@@ -28,9 +28,10 @@ pub struct Error(error::Error);
 type Result<T> = std::result::Result<T, Error>;
 
 const GIBIBYTE: i64 = 1024 * 1024 * 1024;
-const SNAPSHOT_BLOCK_WORKERS: usize = 64;
-const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 3;
+const SNAPSHOT_BLOCK_WORKERS: usize = 2000;
+const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 5;
 const SHA256_ALGORITHM: &str = "SHA256";
+const DISABLE_SHA: bool = true;
 
 // ListSnapshotBlocks allows us to specify how many blocks are returned in each
 // query, from the default of 100 to the maximum of 10000. Since we fetch all
@@ -302,24 +303,26 @@ impl SnapshotDownloader {
                 data_length,
             }
         );
+	if !DISABLE_SHA {
+	        let mut block_digest = Sha256::new();
+	        block_digest.update(&block_data);
+	        let hash_bytes = block_digest.finalize();
+	        let block_hash = base64::encode(&hash_bytes);
 
-        let mut block_digest = Sha256::new();
-        block_digest.update(&block_data);
-        let hash_bytes = block_digest.finalize();
-        let block_hash = base64::encode(&hash_bytes);
-
-        ensure!(
-            block_hash == expected_hash,
-            error::BadBlockChecksum {
-                snapshot_id,
-                block_index,
-                block_hash,
-                expected_hash,
-            }
-        );
+	        ensure!(
+	            block_hash == expected_hash,
+	            error::BadBlockChecksum {
+	                snapshot_id,
+	                block_index,
+	                block_hash,
+	                expected_hash,
+	            }
+	        );
+	}
 
         // Blocks of all zeroes can be omitted from the file.
-        let sparse = block_data.iter().all(|&byte| byte == 0u8);
+        // let sparse = block_data.iter().all(|&byte| byte == 0u8);
+        let sparse = expected_hash.eq("B4VNL+8pega6gWheZgwzLeNtXRjVRpJ9MNqtbX/aFUE="); // Known checksum for a sparse 512K block.
         if sparse {
             if let Some(ref progress_bar) = *context.progress_bar {
                 progress_bar.inc(1);
@@ -355,7 +358,9 @@ impl SnapshotDownloader {
             .await
             .context(error::WriteFileBytes { path, count })?;
 
-        f.flush().await.context(error::FlushFile { path })?;
+        if !DISABLE_SHA {
+		f.flush().await.context(error::FlushFile { path })?;
+	}
 
         if let Some(ref progress_bar) = *context.progress_bar {
             progress_bar.inc(1);

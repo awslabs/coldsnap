@@ -7,7 +7,9 @@ this should cover most scenarios.
 /// Create a rusoto client of the given type using the (optional) given region, endpoint, and credentials.
 macro_rules! build_client {
     ($client_type:ty, $region_name:expr, $endpoint:expr, $profile:expr) => {{
-        let http_client = HttpClient::new().context(error::CreateHttpClient)?;
+	let mut http_config_with_bigger_buffer = HttpConfig::new();
+	http_config_with_bigger_buffer.read_buf_size(520 * 1024); // 512K chunk + some overhead
+        let http_client = HttpClient::new_with_config(http_config_with_bigger_buffer).context(error::CreateHttpClient)?;
         let profile_provider = match $profile {
             Some(profile) => {
                 let mut p = ProfileProvider::new().context(error::CreateProfileProvider)?;
