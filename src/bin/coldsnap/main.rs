@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 type Result<T> = std::result::Result<T, error::Error>;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 256)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 512)]
 // Returning a Result from main makes it print a Debug representation of the error, but with Snafu
 // we have nice Display representations of the error, so we wrap "main" (run) and print any error.
 // https://github.com/shepmaster/snafu/issues/110
