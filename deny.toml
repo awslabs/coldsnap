@@ -35,3 +35,13 @@ expression = "ISC"
 license-files = [
     { path = "LICENSE", hash = 0x001c7e6c },
 ]
+
+[bans]
+# Deny multiple versions or wildcard dependencies.
+multiple-versions = "deny"
+wildcards = "deny"
+
+[sources]
+# Deny crates from unknown registries or git repositories.
+unknown-registry = "deny"
+unknown-git = "deny"
