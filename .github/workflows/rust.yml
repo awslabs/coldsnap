@@ -38,5 +38,5 @@ jobs:
     - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
     - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
     - run: cargo fmt -- --check
-    - run: cargo install --version 0.6.2 cargo-deny --no-default-features --locked
-    - run: cargo deny check --disable-fetch licenses
+    - run: cargo install --version 0.9.1 cargo-deny --locked
+    - run: cargo deny --features ${{ matrix.features }} --no-default-features check --disable-fetch licenses bans sources
