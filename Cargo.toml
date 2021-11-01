@@ -16,7 +16,7 @@ rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
 
 [dependencies]
 argh = "0.1.6"
-tokio = { version = "~1.8", features = ["fs", "io-util", "time"] }  # LTS
+tokio = { version = "~1.13", features = ["fs", "io-util", "time"] }  # LTS
 sha2 = "0.9.8"
 bytes = "1"
 base64 = "0.13.0"
