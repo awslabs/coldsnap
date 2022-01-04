@@ -7,10 +7,10 @@ this should cover most scenarios.
 /// Create a rusoto client of the given type using the (optional) given region, endpoint, and credentials.
 macro_rules! build_client {
     ($client_type:ty, $region_name:expr, $endpoint:expr, $profile:expr) => {{
-        let http_client = HttpClient::new().context(error::CreateHttpClient)?;
+        let http_client = HttpClient::new().context(error::CreateHttpClientSnafu)?;
         let profile_provider = match $profile {
             Some(profile) => {
-                let mut p = ProfileProvider::new().context(error::CreateProfileProvider)?;
+                let mut p = ProfileProvider::new().context(error::CreateProfileProviderSnafu)?;
                 p.set_profile(profile);
                 Some(p)
             }
@@ -23,7 +23,7 @@ macro_rules! build_client {
 
         fn parse_region(region: Option<String>) -> Result<Option<Region>> {
             region
-                .map(|r| r.parse().context(error::ParseRegion { region: r }))
+                .map(|r| r.parse().context(error::ParseRegionSnafu { region: r }))
                 .transpose()
         }
 

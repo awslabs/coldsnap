@@ -60,7 +60,9 @@ impl SnapshotDownloader {
         progress_bar: Option<ProgressBar>,
     ) -> Result<()> {
         let path = path.as_ref();
-        let _ = path.file_name().context(error::ValidateFileName { path })?;
+        let _ = path
+            .file_name()
+            .context(error::ValidateFileNameSnafu { path })?;
 
         // Find the overall volume size, the block size, and the metadata we need for each block:
         // the index, which lets us calculate the offset into the volume; and the token, which we
@@ -96,11 +98,12 @@ impl SnapshotDownloader {
         let progress_bar = match progress_bar {
             Some(pb) => {
                 let pb_length = snapshot.blocks.len();
-                let pb_length = u64::try_from(pb_length).with_context(|| error::ConvertNumber {
-                    what: "progress bar length",
-                    number: pb_length.to_string(),
-                    target: "u64",
-                })?;
+                let pb_length =
+                    u64::try_from(pb_length).with_context(|_| error::ConvertNumberSnafu {
+                        what: "progress bar length",
+                        number: pb_length.to_string(),
+                        target: "u64",
+                    })?;
                 pb.set_length(pb_length);
                 Arc::new(Some(pb))
             }
@@ -158,7 +161,7 @@ impl SnapshotDownloader {
                 .iter()
                 .map(|(_, e)| format!("\n{}", e))
                 .collect();
-            error::GetSnapshotBlocks {
+            error::GetSnapshotBlocksSnafu {
                 error_count: block_errors_count,
                 snapshot_id: snapshot.snapshot_id,
                 error_report,
@@ -189,23 +192,23 @@ impl SnapshotDownloader {
                 .ebs_client
                 .list_snapshot_blocks(request)
                 .await
-                .context(error::ListSnapshotBlocks { snapshot_id })?;
+                .context(error::ListSnapshotBlocksSnafu { snapshot_id })?;
 
             volume_size = response
                 .volume_size
-                .context(error::FindVolumeSize { snapshot_id })?;
+                .context(error::FindVolumeSizeSnafu { snapshot_id })?;
 
             block_size = response
                 .block_size
-                .context(error::FindBlockSize { snapshot_id })?;
+                .context(error::FindBlockSizeSnafu { snapshot_id })?;
 
             for block in response.blocks.unwrap_or_else(Vec::new).iter() {
                 let index = block
                     .block_index
-                    .context(error::FindBlockIndex { snapshot_id })?;
+                    .context(error::FindBlockIndexSnafu { snapshot_id })?;
 
                 let token = String::from(block.block_token.as_ref().context(
-                    error::FindBlockProperty {
+                    error::FindBlockPropertySnafu {
                         snapshot_id,
                         block_index: index,
                         property: "token",
@@ -246,32 +249,35 @@ impl SnapshotDownloader {
             .ebs_client
             .get_snapshot_block(block_request)
             .await
-            .context(error::GetSnapshotBlock {
+            .context(error::GetSnapshotBlockSnafu {
                 snapshot_id,
                 block_index,
             })?;
 
-        let expected_hash = response.checksum.context(error::FindBlockProperty {
+        let expected_hash = response.checksum.context(error::FindBlockPropertySnafu {
             snapshot_id,
             block_index,
             property: "checksum",
         })?;
 
-        let checksum_algorithm = response
-            .checksum_algorithm
-            .context(error::FindBlockProperty {
+        let checksum_algorithm =
+            response
+                .checksum_algorithm
+                .context(error::FindBlockPropertySnafu {
+                    snapshot_id,
+                    block_index,
+                    property: "checksum algorithm",
+                })?;
+
+        let data_length = response
+            .data_length
+            .context(error::FindBlockPropertySnafu {
                 snapshot_id,
                 block_index,
-                property: "checksum algorithm",
+                property: "data length",
             })?;
 
-        let data_length = response.data_length.context(error::FindBlockProperty {
-            snapshot_id,
-            block_index,
-            property: "data length",
-        })?;
-
-        let block_data = response.block_data.context(error::FindBlockProperty {
+        let block_data = response.block_data.context(error::FindBlockPropertySnafu {
             snapshot_id,
             block_index,
             property: "data",
@@ -279,7 +285,7 @@ impl SnapshotDownloader {
 
         ensure!(
             checksum_algorithm == SHA256_ALGORITHM,
-            error::UnexpectedBlockChecksumAlgorithm {
+            error::UnexpectedBlockChecksumAlgorithmSnafu {
                 snapshot_id,
                 block_index,
                 checksum_algorithm,
@@ -288,7 +294,7 @@ impl SnapshotDownloader {
 
         let block_data_length = block_data.len();
         let block_data_length =
-            i64::try_from(block_data_length).with_context(|| error::ConvertNumber {
+            i64::try_from(block_data_length).with_context(|_| error::ConvertNumberSnafu {
                 what: "block data length",
                 number: block_data_length.to_string(),
                 target: "i64",
@@ -296,7 +302,7 @@ impl SnapshotDownloader {
 
         ensure!(
             data_length > 0 && data_length <= block_size && data_length == block_data_length,
-            error::UnexpectedBlockDataLength {
+            error::UnexpectedBlockDataLengthSnafu {
                 snapshot_id,
                 block_index,
                 data_length,
@@ -310,7 +316,7 @@ impl SnapshotDownloader {
 
         ensure!(
             block_hash == expected_hash,
-            error::BadBlockChecksum {
+            error::BadBlockChecksumSnafu {
                 snapshot_id,
                 block_index,
                 block_hash,
@@ -332,10 +338,10 @@ impl SnapshotDownloader {
             .write(true)
             .open(path)
             .await
-            .context(error::OpenFile { path })?;
+            .context(error::OpenFileSnafu { path })?;
 
         let offset = context.block_index * block_size;
-        let offset = u64::try_from(offset).with_context(|| error::ConvertNumber {
+        let offset = u64::try_from(offset).with_context(|_| error::ConvertNumberSnafu {
             what: "file offset",
             number: offset.to_string(),
             target: "u64",
@@ -343,9 +349,9 @@ impl SnapshotDownloader {
 
         f.seek(SeekFrom::Start(offset))
             .await
-            .context(error::SeekFileOffset { path, offset })?;
+            .context(error::SeekFileOffsetSnafu { path, offset })?;
 
-        let count = usize::try_from(data_length).with_context(|| error::ConvertNumber {
+        let count = usize::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
             what: "byte count",
             number: data_length.to_string(),
             target: "usize",
@@ -353,9 +359,9 @@ impl SnapshotDownloader {
 
         f.write_all(&block_data)
             .await
-            .context(error::WriteFileBytes { path, count })?;
+            .context(error::WriteFileBytesSnafu { path, count })?;
 
-        f.flush().await.context(error::FlushFile { path })?;
+        f.flush().await.context(error::FlushFileSnafu { path })?;
 
         if let Some(ref progress_bar) = *context.progress_bar {
             progress_bar.inc(1);
@@ -423,7 +429,7 @@ impl BlockDeviceTarget {
 
         let file_meta = fs::metadata(path)
             .await
-            .context(error::ReadFileMetadata { path })?;
+            .context(error::ReadFileMetadataSnafu { path })?;
 
         if file_meta.file_type().is_block_device() {
             Ok(true)
@@ -438,12 +444,13 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
     // ensures existing size >= length, but otherwise leaves untouched
     async fn grow(&mut self, length: i64) -> Result<()> {
         let path = self.path.as_path();
-        let block_device_size = get_block_device_size(path).context(error::GetBlockDeviceSize)?;
+        let block_device_size =
+            get_block_device_size(path).context(error::GetBlockDeviceSizeSnafu)?;
 
         // Make sure the block device is big enough to hold the snapshot
         ensure!(
             block_device_size >= length,
-            error::BlockDeviceTooSmall {
+            error::BlockDeviceTooSmallSnafu {
                 block_device_size: block_device_size / GIBIBYTE,
                 needed: length / GIBIBYTE,
             }
@@ -488,22 +495,23 @@ impl SnapshotWriteTarget for FileTarget {
         // Create a temporary file and extend it to the required size.
         let target_dir = path
             .parent()
-            .context(error::ValidateParentDirectory { path })?;
+            .context(error::ValidateParentDirectorySnafu { path })?;
 
         let temp_file = NamedTempFile::new_in(target_dir)
-            .context(error::CreateTempFile { path: target_dir })?;
+            .context(error::CreateTempFileSnafu { path: target_dir })?;
 
         let temp_file_len = length;
-        let temp_file_len = u64::try_from(temp_file_len).with_context(|| error::ConvertNumber {
-            what: "temp file length",
-            number: temp_file_len.to_string(),
-            target: "u64",
-        })?;
+        let temp_file_len =
+            u64::try_from(temp_file_len).with_context(|_| error::ConvertNumberSnafu {
+                what: "temp file length",
+                number: temp_file_len.to_string(),
+                target: "u64",
+            })?;
 
         temp_file
             .as_file()
             .set_len(temp_file_len)
-            .context(error::ExtendTempFile {
+            .context(error::ExtendTempFileSnafu {
                 path: temp_file.as_ref(),
             })?;
 
@@ -513,20 +521,26 @@ impl SnapshotWriteTarget for FileTarget {
     }
 
     fn write_path(&self) -> Result<&Path> {
-        let write_path = self.temp_file.as_ref().context(error::MissingTempFile {})?;
+        let write_path = self
+            .temp_file
+            .as_ref()
+            .context(error::MissingTempFileSnafu {})?;
 
         Ok(write_path.as_ref())
     }
 
     // persist file to destination
     fn finalize(&mut self) -> Result<()> {
-        let temp_file = self.temp_file.take().context(error::MissingTempFile {})?;
+        let temp_file = self
+            .temp_file
+            .take()
+            .context(error::MissingTempFileSnafu {})?;
 
         let path = self.path.as_path();
         temp_file
             .into_temp_path()
             .persist(path)
-            .context(error::PersistTempFile { path })?;
+            .context(error::PersistTempFileSnafu { path })?;
 
         Ok(())
     }
@@ -538,7 +552,7 @@ mod error {
     use std::path::PathBuf;
 
     #[derive(Debug, Snafu)]
-    #[snafu(visibility = "pub(super)")]
+    #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
         #[snafu(display("Failed to read metadata for '{}': {}", path.display(), source))]
         ReadFileMetadata {

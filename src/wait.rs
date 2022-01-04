@@ -98,7 +98,7 @@ impl SnapshotWaiter {
             // Stop if we're over max, unless we're on a success streak, then give it some wiggle room.
             ensure!(
                 (attempts - successes) <= max_attempts,
-                error::MaxAttempts { max_attempts }
+                error::MaxAttemptsSnafu { max_attempts }
             );
 
             let describe_request = DescribeSnapshotsRequest {
@@ -109,7 +109,7 @@ impl SnapshotWaiter {
                 .ec2_client
                 .describe_snapshots(describe_request)
                 .await
-                .context(error::DescribeSnapshots)?;
+                .context(error::DescribeSnapshotsSnafu)?;
 
             // The response contains an Option<Vec<Snapshot>>, so we have to check that we got a
             // list at all, and then that the list contains the ID in question.
@@ -129,7 +129,7 @@ impl SnapshotWaiter {
                             }
                             // If the state was error, we know we'll never hit their desired state.
                             // (Unless they desired "error", which will be caught above.)
-                            ensure!(found_state != "error", error::State);
+                            ensure!(found_state != "error", error::StateSnafu);
                         }
                     }
                 }
@@ -153,7 +153,7 @@ mod error {
     use snafu::Snafu;
 
     #[derive(Debug, Snafu)]
-    #[snafu(visibility = "pub(super)")]
+    #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
         #[snafu(display("Failed to describe snapshots: {}", source))]
         DescribeSnapshots {

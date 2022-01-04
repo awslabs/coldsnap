@@ -26,15 +26,15 @@ pub(crate) fn get_block_device_size(path: &Path) -> Result<i64> {
     let file = OpenOptions::new()
         .read(true)
         .open(path)
-        .context(error::OpenFile { path })?;
+        .context(error::OpenFileSnafu { path })?;
 
     let mut block_device_size = 0;
     let result = unsafe { ioctl::blkgetsize64(file.as_raw_fd(), &mut block_device_size) }
-        .context(error::GetBlockDeviceSize { path })?;
-    ensure!(result == 0, error::InvalidBlockDeviceSize { result });
+        .context(error::GetBlockDeviceSizeSnafu { path })?;
+    ensure!(result == 0, error::InvalidBlockDeviceSizeSnafu { result });
 
     let block_device_size =
-        i64::try_from(block_device_size).with_context(|| error::ConvertNumber {
+        i64::try_from(block_device_size).with_context(|_| error::ConvertNumberSnafu {
             what: "block device size",
             number: block_device_size.to_string(),
             target: "i64",
@@ -48,7 +48,7 @@ mod error {
     use std::path::PathBuf;
 
     #[derive(Debug, Snafu)]
-    #[snafu(visibility = "pub(super)")]
+    #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
         #[snafu(display("Failed to open '{}': {}", path.display(), source))]
         OpenFile {
