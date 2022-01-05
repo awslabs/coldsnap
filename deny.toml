@@ -41,6 +41,11 @@ license-files = [
 multiple-versions = "deny"
 wildcards = "deny"
 
+skip-tree = [
+    # rusoto_signature uses an older version of sha2
+    { name = "rusoto_signature", version = "0.47.0" },
+]
+
 [sources]
 # Deny crates from unknown registries or git repositories.
 unknown-registry = "deny"
