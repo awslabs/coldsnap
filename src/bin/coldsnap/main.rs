@@ -41,13 +41,13 @@ async fn run() -> Result<()> {
             let downloader = SnapshotDownloader::new(client);
             ensure!(
                 download_args.file.file_name().is_some(),
-                error::ValidateFilename {
+                error::ValidateFilenameSnafu {
                     path: download_args.file
                 }
             );
             ensure!(
                 download_args.force || !download_args.file.exists(),
-                error::FileExists {
+                error::FileExistsSnafu {
                     path: download_args.file
                 }
             );
@@ -60,7 +60,7 @@ async fn run() -> Result<()> {
                     progress_bar,
                 )
                 .await
-                .context(error::DownloadSnapshot)?;
+                .context(error::DownloadSnapshotSnafu)?;
         }
 
         SubCommand::Upload(upload_args) => {
@@ -80,7 +80,7 @@ async fn run() -> Result<()> {
                     progress_bar,
                 )
                 .await
-                .context(error::UploadSnapshot)?;
+                .context(error::UploadSnapshotSnafu)?;
             println!("{}", snapshot_id);
             if upload_args.wait {
                 let client = build_client!(Ec2Client, args.region, args.endpoint, args.profile)?;
@@ -88,7 +88,7 @@ async fn run() -> Result<()> {
                 waiter
                     .wait_for_completed(&snapshot_id)
                     .await
-                    .context(error::WaitSnapshot)?;
+                    .context(error::WaitSnapshotSnafu)?;
             }
         }
 
@@ -104,7 +104,7 @@ async fn run() -> Result<()> {
             waiter
                 .wait(wait_args.snapshot_id, wait_params)
                 .await
-                .context(error::WaitSnapshot)?;
+                .context(error::WaitSnapshotSnafu)?;
         }
     }
     Ok(())
@@ -232,7 +232,7 @@ mod error {
     use snafu::Snafu;
 
     #[derive(Debug, Snafu)]
-    #[snafu(visibility = "pub(super)")]
+    #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
         #[snafu(display("Failed to create HTTP client: {}", source))]
         CreateHttpClient {

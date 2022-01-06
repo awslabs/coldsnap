@@ -27,7 +27,7 @@ rusoto_credential = "0.47.0"
 rusoto_ebs = { version = "0.47.0", default-features = false }
 rusoto_ec2 = { version = "0.47.0", default-features = false }
 rusoto_signature = "0.47.0"
-snafu = "0.6.9"
+snafu = "0.7"
 indicatif = "0.16.2"
 tempfile = "3.1.0"
 async-trait = "0.1.50"

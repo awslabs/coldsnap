@@ -75,10 +75,10 @@ impl SnapshotUploader {
 
         let file_meta = fs::metadata(path)
             .await
-            .context(error::ReadFileMetadata { path })?;
+            .context(error::ReadFileMetadataSnafu { path })?;
 
         let file_size = if file_meta.file_type().is_block_device() {
-            get_block_device_size(path).context(error::GetBlockDeviceSize)?
+            get_block_device_size(path).context(error::GetBlockDeviceSizeSnafu)?
         } else {
             self.file_size(&file_meta).await?
         };
@@ -90,7 +90,7 @@ impl SnapshotUploader {
         let volume_size = volume_size.unwrap_or(min_volume_size);
         ensure!(
             volume_size >= min_volume_size,
-            error::BadVolumeSize {
+            error::BadVolumeSizeSnafu {
                 requested: volume_size,
                 needed: min_volume_size,
             }
@@ -114,11 +114,12 @@ impl SnapshotUploader {
         let progress_bar = match progress_bar {
             Some(pb) => {
                 let pb_length = file_blocks;
-                let pb_length = u64::try_from(pb_length).with_context(|| error::ConvertNumber {
-                    what: "progress bar length",
-                    number: pb_length.to_string(),
-                    target: "u64",
-                })?;
+                let pb_length =
+                    u64::try_from(pb_length).with_context(|_| error::ConvertNumberSnafu {
+                        what: "progress bar length",
+                        number: pb_length.to_string(),
+                        target: "u64",
+                    })?;
                 pb.set_length(pb_length);
                 Arc::new(Some(pb))
             }
@@ -134,7 +135,7 @@ impl SnapshotUploader {
             // to `read_exact` later.
             let data_length = cmp::min(block_size, remaining_data);
             let data_length =
-                usize::try_from(data_length).with_context(|| error::ConvertNumber {
+                usize::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
                     what: "data length",
                     number: data_length.to_string(),
                     target: "usize",
@@ -195,7 +196,7 @@ impl SnapshotUploader {
                 .iter()
                 .map(|(_, e)| format!("\n{}", e))
                 .collect();
-            error::PutSnapshotBlocks {
+            error::PutSnapshotBlocksSnafu {
                 error_count: block_errors_count,
                 snapshot_id: snapshot_id.clone(),
                 error_report,
@@ -227,7 +228,7 @@ impl SnapshotUploader {
     /// Find the size of a file.
     async fn file_size(&self, file_meta: &std::fs::Metadata) -> Result<i64> {
         let file_len = file_meta.len();
-        let file_len = i64::try_from(file_len).with_context(|| error::ConvertNumber {
+        let file_len = i64::try_from(file_len).with_context(|_| error::ConvertNumberSnafu {
             what: "file length",
             number: file_len.to_string(),
             target: "i64",
@@ -248,12 +249,14 @@ impl SnapshotUploader {
             .ebs_client
             .start_snapshot(start_request)
             .await
-            .context(error::StartSnapshot)?;
+            .context(error::StartSnapshotSnafu)?;
 
-        let snapshot_id = start_response.snapshot_id.context(error::FindSnapshotId)?;
+        let snapshot_id = start_response
+            .snapshot_id
+            .context(error::FindSnapshotIdSnafu)?;
         let block_size = start_response
             .block_size
-            .context(error::FindSnapshotBlockSize)?;
+            .context(error::FindSnapshotBlockSizeSnafu)?;
 
         Ok((snapshot_id, block_size))
     }
@@ -276,7 +279,7 @@ impl SnapshotUploader {
         self.ebs_client
             .complete_snapshot(complete_request)
             .await
-            .context(error::CompleteSnapshot { snapshot_id })?;
+            .context(error::CompleteSnapshotSnafu { snapshot_id })?;
 
         Ok(())
     }
@@ -284,10 +287,12 @@ impl SnapshotUploader {
     /// Read from the file in context and upload a single block to the snapshot.
     async fn upload_block(&self, context: &BlockContext) -> Result<()> {
         let path: &Path = context.path.as_ref();
-        let mut f = File::open(path).await.context(error::OpenFile { path })?;
+        let mut f = File::open(path)
+            .await
+            .context(error::OpenFileSnafu { path })?;
 
         let offset = context.block_index * context.block_size;
-        let offset = u64::try_from(offset).with_context(|| error::ConvertNumber {
+        let offset = u64::try_from(offset).with_context(|_| error::ConvertNumberSnafu {
             what: "file offset",
             number: offset.to_string(),
             target: "u64",
@@ -295,14 +300,15 @@ impl SnapshotUploader {
 
         f.seek(SeekFrom::Start(offset))
             .await
-            .context(error::SeekFileOffset { path, offset })?;
+            .context(error::SeekFileOffsetSnafu { path, offset })?;
 
         let block_size = context.block_size;
-        let block_size = usize::try_from(block_size).with_context(|| error::ConvertNumber {
-            what: "block size",
-            number: block_size.to_string(),
-            target: "usize",
-        })?;
+        let block_size =
+            usize::try_from(block_size).with_context(|_| error::ConvertNumberSnafu {
+                what: "block size",
+                number: block_size.to_string(),
+                target: "usize",
+            })?;
 
         let mut block = BytesMut::with_capacity(block_size);
         let count = context.data_length;
@@ -310,7 +316,7 @@ impl SnapshotUploader {
 
         f.read_exact(block.as_mut())
             .await
-            .context(error::ReadFileBytes {
+            .context(error::ReadFileBytesSnafu {
                 path,
                 count,
                 offset,
@@ -339,11 +345,12 @@ impl SnapshotUploader {
         let block_index = context.block_index;
 
         let data_length = block.len();
-        let data_length = i64::try_from(data_length).with_context(|| error::ConvertNumber {
-            what: "data length",
-            number: data_length.to_string(),
-            target: "i64",
-        })?;
+        let data_length =
+            i64::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
+                what: "data length",
+                number: data_length.to_string(),
+                target: "i64",
+            })?;
 
         let block_request = PutSnapshotBlockRequest {
             snapshot_id: snapshot_id.to_string(),
@@ -359,7 +366,7 @@ impl SnapshotUploader {
             .ebs_client
             .put_snapshot_block(block_request)
             .await
-            .context(error::PutSnapshotBlock {
+            .context(error::PutSnapshotBlockSnafu {
                 snapshot_id,
                 block_index,
             })?;
@@ -398,7 +405,7 @@ mod error {
     use std::path::PathBuf;
 
     #[derive(Debug, Snafu)]
-    #[snafu(visibility = "pub(super)")]
+    #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
         #[snafu(display("Failed to read metadata for '{}': {}", path.display(), source))]
         ReadFileMetadata {
