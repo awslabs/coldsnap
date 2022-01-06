@@ -20,7 +20,7 @@ tokio = { version = "~1.8", features = ["fs", "io-util", "time"] }  # LTS
 sha2 = "0.9.8"
 bytes = "1"
 base64 = "0.13.0"
-futures = "0.3.18"
+futures = "0.3.19"
 nix = "0.23.0"
 rusoto_core = { version = "0.47.0", default-features = false }
 rusoto_credential = "0.47.0"
