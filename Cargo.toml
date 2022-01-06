@@ -15,7 +15,7 @@ rusoto-native-tls = ["rusoto_core/native-tls", "rusoto_ebs/native-tls", "rusoto_
 rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
 
 [dependencies]
-argh = "0.1.6"
+argh = "0.1.7"
 tokio = { version = "~1.8", features = ["fs", "io-util", "time"] }  # LTS
 sha2 = "0.9.8"
 bytes = "1"
