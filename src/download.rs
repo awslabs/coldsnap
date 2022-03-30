@@ -202,7 +202,7 @@ impl SnapshotDownloader {
                 .block_size
                 .context(error::FindBlockSizeSnafu { snapshot_id })?;
 
-            for block in response.blocks.unwrap_or_else(Vec::new).iter() {
+            for block in response.blocks.unwrap_or_default().iter() {
                 let index = block
                     .block_index
                     .context(error::FindBlockIndexSnafu { snapshot_id })?;
