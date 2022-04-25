@@ -43,7 +43,7 @@ wildcards = "deny"
 
 skip-tree = [
     # rusoto_signature uses an older version of sha2
-    { name = "rusoto_signature", version = "0.47.0" },
+    { name = "rusoto_signature" },
 ]
 
 [sources]
