@@ -25,7 +25,7 @@ nix = "0.23.1"
 rusoto_core = { version = "0.47.0", default-features = false }
 rusoto_credential = "0.47.0"
 rusoto_ebs = { version = "0.47.0", default-features = false }
-rusoto_ec2 = { version = "0.47.0", default-features = false }
+rusoto_ec2 = { version = "0.48.0", default-features = false }
 rusoto_signature = "0.47.0"
 snafu = "0.7"
 indicatif = "0.16.2"
