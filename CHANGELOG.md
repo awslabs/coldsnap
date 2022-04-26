@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2022-04-26
+### Changed
+- Add support for uploading from a block device.  [#92]
+- Upgrade SNAFU.  ([#115], thanks, @shepmaster!)
+- Unpin tokio.  [#129]
+- Update dependencies.  [#91], [#94], [#97], [#98], [#99], [#102], [#103], [#105], [#106], [#109], [#111], [#112], [#114], [#115], [#116], [#117], [#118], [#119], [#123], [#124], [#127], [#130], [#131], [#132], [#134], [#135]
+
 ## [0.3.2] - 2021-07-30
 ### Changed
 - Update dependencies.  [#61], [#63], [#64], [#66], [#67], [#73], [#77], [#82], [#87], [#88]
@@ -31,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.3.3...develop
+[0.3.3]: https://github.com/awslabs/coldsnap/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/awslabs/coldsnap/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/awslabs/coldsnap/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/awslabs/coldsnap/compare/v0.2.0...v0.3.0
@@ -61,3 +70,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#82]: https://github.com/awslabs/coldsnap/pull/82
 [#87]: https://github.com/awslabs/coldsnap/pull/87
 [#88]: https://github.com/awslabs/coldsnap/pull/88
+[#91]: https://github.com/awslabs/coldsnap/pull/91
+[#92]: https://github.com/awslabs/coldsnap/pull/92
+[#94]: https://github.com/awslabs/coldsnap/pull/94
+[#97]: https://github.com/awslabs/coldsnap/pull/97
+[#98]: https://github.com/awslabs/coldsnap/pull/98
+[#99]: https://github.com/awslabs/coldsnap/pull/99
+[#102]: https://github.com/awslabs/coldsnap/pull/102
+[#103]: https://github.com/awslabs/coldsnap/pull/103
+[#105]: https://github.com/awslabs/coldsnap/pull/105
+[#106]: https://github.com/awslabs/coldsnap/pull/106
+[#109]: https://github.com/awslabs/coldsnap/pull/109
+[#111]: https://github.com/awslabs/coldsnap/pull/111
+[#112]: https://github.com/awslabs/coldsnap/pull/112
+[#114]: https://github.com/awslabs/coldsnap/pull/114
+[#115]: https://github.com/awslabs/coldsnap/pull/115
+[#116]: https://github.com/awslabs/coldsnap/pull/116
+[#117]: https://github.com/awslabs/coldsnap/pull/117
+[#118]: https://github.com/awslabs/coldsnap/pull/118
+[#119]: https://github.com/awslabs/coldsnap/pull/119
+[#123]: https://github.com/awslabs/coldsnap/pull/123
+[#124]: https://github.com/awslabs/coldsnap/pull/124
+[#127]: https://github.com/awslabs/coldsnap/pull/127
+[#129]: https://github.com/awslabs/coldsnap/pull/129
+[#130]: https://github.com/awslabs/coldsnap/pull/130
+[#131]: https://github.com/awslabs/coldsnap/pull/131
+[#132]: https://github.com/awslabs/coldsnap/pull/132
+[#134]: https://github.com/awslabs/coldsnap/pull/134
+[#135]: https://github.com/awslabs/coldsnap/pull/135
