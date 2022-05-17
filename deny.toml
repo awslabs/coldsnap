@@ -42,8 +42,8 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip-tree = [
-    # rusoto_signature uses an older version of sha2
-    { name = "rusoto_signature" },
+    # argh_derive pulls in an older version of heck
+    { name = "argh_derive", version = "0.1.7" }, 
 ]
 
 [sources]

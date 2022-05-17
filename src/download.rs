@@ -7,10 +7,9 @@ Download Amazon EBS snapshots.
 
 use crate::block_device::get_block_device_size;
 use async_trait::async_trait;
+use aws_sdk_ebs::Client as EbsClient;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
-use rusoto_ebs::{Ebs, EbsClient};
-use rusoto_ebs::{GetSnapshotBlockRequest, ListSnapshotBlocksRequest};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 use std::collections::BTreeMap;
@@ -36,7 +35,7 @@ const SHA256_ALGORITHM: &str = "SHA256";
 // query, from the default of 100 to the maximum of 10000. Since we fetch all
 // the block information up front in a loop, we ask for the maximum so that we
 // need fewer API calls.
-const LIST_REQUEST_MAX_RESULTS: i64 = 10000;
+const LIST_REQUEST_MAX_RESULTS: i32 = 10000;
 
 pub struct SnapshotDownloader {
     ebs_client: EbsClient,
@@ -175,22 +174,19 @@ impl SnapshotDownloader {
     /// Retrieve the index and token for all snapshot blocks.
     async fn list_snapshot_blocks(&self, snapshot_id: &str) -> Result<Snapshot> {
         let mut blocks = Vec::new();
-        let max_results = Some(LIST_REQUEST_MAX_RESULTS);
+        let max_results = LIST_REQUEST_MAX_RESULTS;
         let mut next_token = None;
         let mut volume_size;
         let mut block_size;
 
         loop {
-            let request = ListSnapshotBlocksRequest {
-                snapshot_id: snapshot_id.to_string(),
-                next_token,
-                max_results,
-                ..Default::default()
-            };
-
             let response = self
                 .ebs_client
-                .list_snapshot_blocks(request)
+                .list_snapshot_blocks()
+                .snapshot_id(snapshot_id)
+                .set_next_token(next_token)
+                .max_results(max_results)
+                .send()
                 .await
                 .context(error::ListSnapshotBlocksSnafu { snapshot_id })?;
 
@@ -239,15 +235,13 @@ impl SnapshotDownloader {
         let block_token = &context.block_token;
         let block_size = context.block_size;
 
-        let block_request = GetSnapshotBlockRequest {
-            snapshot_id: snapshot_id.to_string(),
-            block_index,
-            block_token: block_token.to_string(),
-        };
-
         let response = context
             .ebs_client
-            .get_snapshot_block(block_request)
+            .get_snapshot_block()
+            .snapshot_id(snapshot_id)
+            .block_index(block_index)
+            .block_token(block_token)
+            .send()
             .await
             .context(error::GetSnapshotBlockSnafu {
                 snapshot_id,
@@ -260,14 +254,15 @@ impl SnapshotDownloader {
             property: "checksum",
         })?;
 
-        let checksum_algorithm =
-            response
-                .checksum_algorithm
-                .context(error::FindBlockPropertySnafu {
-                    snapshot_id,
-                    block_index,
-                    property: "checksum algorithm",
-                })?;
+        let checksum_algorithm = response
+            .checksum_algorithm
+            .context(error::FindBlockPropertySnafu {
+                snapshot_id,
+                block_index,
+                property: "checksum algorithm",
+            })?
+            .as_str()
+            .to_string();
 
         let data_length = response
             .data_length
@@ -277,11 +272,18 @@ impl SnapshotDownloader {
                 property: "data length",
             })?;
 
-        let block_data = response.block_data.context(error::FindBlockPropertySnafu {
-            snapshot_id,
-            block_index,
-            property: "data",
-        })?;
+        let block_data_stream =
+            response
+                .block_data
+                .collect()
+                .await
+                .context(error::CollectByteStreamSnafu {
+                    snapshot_id,
+                    block_index,
+                    property: "data",
+                })?;
+
+        let block_data = block_data_stream.into_bytes();
 
         ensure!(
             checksum_algorithm == SHA256_ALGORITHM,
@@ -291,13 +293,12 @@ impl SnapshotDownloader {
                 checksum_algorithm,
             }
         );
-
         let block_data_length = block_data.len();
         let block_data_length =
-            i64::try_from(block_data_length).with_context(|_| error::ConvertNumberSnafu {
+            i32::try_from(block_data_length).with_context(|_| error::ConvertNumberSnafu {
                 what: "block data length",
                 number: block_data_length.to_string(),
-                target: "i64",
+                target: "i32",
             })?;
 
         ensure!(
@@ -375,24 +376,24 @@ impl SnapshotDownloader {
 struct Snapshot {
     snapshot_id: String,
     volume_size: i64,
-    block_size: i64,
+    block_size: i32,
     blocks: Vec<SnapshotBlock>,
 }
 
 /// Stores the metadata about a snapshot block.
 struct SnapshotBlock {
-    index: i64,
+    index: i32,
     token: String,
 }
 
 /// Stores the context needed to download a snapshot block.
 struct BlockContext {
     path: PathBuf,
-    block_index: i64,
+    block_index: i32,
     block_token: String,
-    block_size: i64,
+    block_size: i32,
     snapshot_id: String,
-    block_errors: Arc<Mutex<BTreeMap<i64, Error>>>,
+    block_errors: Arc<Mutex<BTreeMap<i32, Error>>>,
     progress_bar: Arc<Option<ProgressBar>>,
     ebs_client: EbsClient,
 }
@@ -548,6 +549,10 @@ impl SnapshotWriteTarget for FileTarget {
 
 /// Potential errors while downloading a snapshot and writing to a local file.
 mod error {
+    use aws_sdk_ebs::{
+        self,
+        error::{GetSnapshotBlockError, ListSnapshotBlocksError},
+    };
     use snafu::Snafu;
     use std::path::PathBuf;
 
@@ -597,10 +602,10 @@ mod error {
         #[snafu(display("Missing temporary file"))]
         MissingTempFile {},
 
-        #[snafu(display("Failed to list snapshot blocks for '{}': {}", snapshot_id, source))]
+        #[snafu(display("Failed to list snapshot blocks '{}': {}", snapshot_id, source))]
         ListSnapshotBlocks {
             snapshot_id: String,
-            source: rusoto_core::RusotoError<rusoto_ebs::ListSnapshotBlocksError>,
+            source: aws_sdk_ebs::types::SdkError<ListSnapshotBlocksError>,
         },
 
         #[snafu(display("Failed to find volume size for '{}'", snapshot_id))]
@@ -617,8 +622,21 @@ mod error {
         ))]
         FindBlockProperty {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             property: String,
+        },
+
+        #[snafu(display(
+            "Failed to find {} for block {} in '{}'",
+            property,
+            block_index,
+            snapshot_id
+        ))]
+        CollectByteStream {
+            snapshot_id: String,
+            block_index: i32,
+            property: String,
+            source: aws_smithy_http::byte_stream::Error,
         },
 
         #[snafu(display("Failed to find block size for '{}'", snapshot_id))]
@@ -671,7 +689,7 @@ mod error {
         GetSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: rusoto_core::RusotoError<rusoto_ebs::GetSnapshotBlockError>,
+            source: aws_sdk_ebs::types::SdkError<GetSnapshotBlockError>,
         },
 
         #[snafu(display(

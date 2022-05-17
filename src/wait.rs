@@ -5,7 +5,8 @@
 Wait for Amazon EBS snapshots to be in the desired state.
 */
 
-use rusoto_ec2::{DescribeSnapshotsRequest, Ec2, Ec2Client};
+use aws_sdk_ec2::model::SnapshotState;
+use aws_sdk_ec2::Client as Ec2Client;
 use snafu::{ensure, ResultExt, Snafu};
 use std::thread::sleep;
 use std::time::Duration;
@@ -101,13 +102,11 @@ impl SnapshotWaiter {
                 error::MaxAttemptsSnafu { max_attempts }
             );
 
-            let describe_request = DescribeSnapshotsRequest {
-                snapshot_ids: Some(vec![snapshot_id.as_ref().to_string()]),
-                ..Default::default()
-            };
             let describe_response = self
                 .ec2_client
-                .describe_snapshots(describe_request)
+                .describe_snapshots()
+                .set_snapshot_ids(Some(vec![snapshot_id.as_ref().to_string()]))
+                .send()
                 .await
                 .context(error::DescribeSnapshotsSnafu)?;
 
@@ -117,8 +116,8 @@ impl SnapshotWaiter {
                 let mut saw_it = false;
                 for snapshot in snapshots {
                     if let Some(ref found_id) = snapshot.snapshot_id {
-                        if let Some(ref found_state) = snapshot.state {
-                            if snapshot_id.as_ref() == found_id && &state == found_state {
+                        if let Some(found_state) = snapshot.state {
+                            if snapshot_id.as_ref() == found_id && state == found_state.as_str() {
                                 // Success; check if we have enough to declare victory.
                                 saw_it = true;
                                 successes += 1;
@@ -129,7 +128,7 @@ impl SnapshotWaiter {
                             }
                             // If the state was error, we know we'll never hit their desired state.
                             // (Unless they desired "error", which will be caught above.)
-                            ensure!(found_state != "error", error::StateSnafu);
+                            ensure!(found_state != SnapshotState::Error, error::StateSnafu);
                         }
                     }
                 }
@@ -148,8 +147,7 @@ impl SnapshotWaiter {
 
 /// Potential errors while waiting for the snapshot.
 mod error {
-    use rusoto_core::RusotoError;
-    use rusoto_ec2::DescribeSnapshotsError;
+    use aws_sdk_ec2::error::DescribeSnapshotsError;
     use snafu::Snafu;
 
     #[derive(Debug, Snafu)]
@@ -157,7 +155,10 @@ mod error {
     pub(super) enum Error {
         #[snafu(display("Failed to describe snapshots: {}", source))]
         DescribeSnapshots {
-            source: RusotoError<DescribeSnapshotsError>,
+            // Clippy gets upset if this isn't a box
+            // The size difference between this and the other enums is too much
+            #[snafu(source(from(aws_sdk_ec2::types::SdkError<DescribeSnapshotsError>, Box::new)))]
+            source: Box<aws_sdk_ec2::types::SdkError<DescribeSnapshotsError>>,
         },
 
         #[snafu(display("Snapshot went to 'error' state"))]

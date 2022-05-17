@@ -6,16 +6,14 @@
 snapshots.
 */
 
-#[macro_use]
-mod client;
-
 use argh::FromArgs;
+use aws_sdk_ebs::Client as EbsClient;
+use aws_sdk_ec2::Client as Ec2Client;
+use aws_smithy_http::endpoint::Endpoint;
+use aws_types::region::Region;
+use aws_types::SdkConfig;
 use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
 use indicatif::{ProgressBar, ProgressStyle};
-use rusoto_core::{HttpClient, Region};
-use rusoto_credential::{ChainProvider, ProfileProvider};
-use rusoto_ebs::EbsClient;
-use rusoto_ec2::Ec2Client;
 use snafu::{ensure, ResultExt};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -35,9 +33,12 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let args: Args = argh::from_env();
+
+    let client_config = build_client_config(args.region, args.profile, args.endpoint).await;
+
     match args.subcommand {
         SubCommand::Download(download_args) => {
-            let client = build_client!(EbsClient, args.region, args.endpoint, args.profile)?;
+            let client = EbsClient::new(&client_config);
             let downloader = SnapshotDownloader::new(client);
             ensure!(
                 download_args.file.file_name().is_some(),
@@ -64,12 +65,7 @@ async fn run() -> Result<()> {
         }
 
         SubCommand::Upload(upload_args) => {
-            let client = build_client!(
-                EbsClient,
-                args.region.clone(),
-                args.endpoint.clone(),
-                args.profile.clone()
-            )?;
+            let client = EbsClient::new(&client_config);
             let uploader = SnapshotUploader::new(client);
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
             let snapshot_id = uploader
@@ -83,7 +79,7 @@ async fn run() -> Result<()> {
                 .context(error::UploadSnapshotSnafu)?;
             println!("{}", snapshot_id);
             if upload_args.wait {
-                let client = build_client!(Ec2Client, args.region, args.endpoint, args.profile)?;
+                let client = Ec2Client::new(&client_config);
                 let waiter = SnapshotWaiter::new(client);
                 waiter
                     .wait_for_completed(&snapshot_id)
@@ -93,7 +89,7 @@ async fn run() -> Result<()> {
         }
 
         SubCommand::Wait(wait_args) => {
-            let client = build_client!(Ec2Client, args.region, args.endpoint, args.profile)?;
+            let client = Ec2Client::new(&client_config);
             let waiter = SnapshotWaiter::new(client);
             let wait_params = WaitParams::new(
                 wait_args.desired_status,
@@ -124,6 +120,56 @@ fn build_progress_bar(no_progress: bool, verb: &str) -> Option<ProgressBar> {
     Some(progress_bar)
 }
 
+/// Create a config to build an AWS SDK client
+async fn build_client_config(
+    region: Option<String>,
+    profile: Option<String>,
+    endpoint: Option<String>,
+) -> SdkConfig {
+    let config: aws_config::ConfigLoader = match (region, &profile) {
+        (Some(region), _) => {
+            // Region option passed in
+            aws_config::from_env().region(Region::new(region))
+        }
+        (None, Some(profile)) => {
+            // Take region from profile
+            aws_config::from_env().region(
+                aws_config::profile::ProfileFileRegionProvider::builder()
+                    .profile_name(profile)
+                    .build(),
+            )
+        }
+        (None, None) => {
+            // No region or profile passed in, use defaults
+            aws_config::from_env()
+        }
+    };
+
+    let config = if let Some(profile) = &profile {
+        // Add profile credential provider
+        config.credentials_provider(
+            aws_config::profile::ProfileFileCredentialsProvider::builder()
+                .profile_name(profile)
+                .build(),
+        )
+    } else {
+        // Keep config unchanged
+        config
+    };
+
+    let config: aws_config::ConfigLoader = match endpoint {
+        Some(endpoint) => {
+            config.endpoint_resolver(Endpoint::immutable(endpoint.parse().expect("valid URI")))
+        }
+        None => {
+            // Keep config the same
+            config
+        }
+    };
+
+    config.load().await
+}
+
 #[derive(FromArgs, PartialEq, Debug)]
 /// Work with snapshots through the Amazon EBS direct APIs.
 struct Args {
@@ -135,7 +181,7 @@ struct Args {
     region: Option<String>,
 
     #[argh(option)]
-    /// the endpoint to use
+    /// overrides the endpoint resolver used for all AWS Services
     endpoint: Option<String>,
 
     #[argh(option)]
@@ -234,27 +280,11 @@ mod error {
     #[derive(Debug, Snafu)]
     #[snafu(visibility(pub(super)))]
     pub(super) enum Error {
-        #[snafu(display("Failed to create HTTP client: {}", source))]
-        CreateHttpClient {
-            source: rusoto_core::request::TlsError,
-        },
-
-        #[snafu(display("Failed to create profile provider: {}", source))]
-        CreateProfileProvider {
-            source: rusoto_credential::CredentialsError,
-        },
-
         #[snafu(display("Failed to download snapshot: {}", source))]
         DownloadSnapshot { source: coldsnap::DownloadError },
 
         #[snafu(display("Refusing to overwrite existing file '{}' without --force", path.display()))]
         FileExists { path: std::path::PathBuf },
-
-        #[snafu(display("Failed to parse region '{}': {}", region, source))]
-        ParseRegion {
-            region: String,
-            source: rusoto_signature::region::ParseRegionError,
-        },
 
         #[snafu(display("Failed to upload snapshot: {}", source))]
         UploadSnapshot { source: coldsnap::UploadError },

@@ -16,9 +16,9 @@ jobs:
       matrix:
         include:
           - features: default
-          - features: rusoto-rustls
+          - features: aws-sdk-rust-rustls
             additional_flags: --no-default-features
-          - features: rusoto-native-tls
+          - features: aws-sdk-rust-native-tls
             additional_flags: --no-default-features
     env:
        CARGO_HOME: .cargo
