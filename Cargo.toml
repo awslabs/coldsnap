@@ -1,6 +1,6 @@
 [package]
 name = "coldsnap"
-version = "0.3.3"
+version = "0.4.0"
 description = "A library and command-line interface for uploading and downloading Amazon EBS snapshots"
 authors = ["Ben Cressey <bcressey@amazon.com>"]
 license = "Apache-2.0"
@@ -10,23 +10,21 @@ repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
 [features]
-default = ["rusoto-native-tls"]
-rusoto-native-tls = ["rusoto_core/native-tls", "rusoto_ebs/native-tls", "rusoto_ec2/native-tls"]
-rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
+default = []
 
 [dependencies]
 argh = "0.1.7"
-tokio = { version = "1.8", features = ["fs", "io-util", "time"] }
+aws-config = "0.11.0"
+aws-sdk-ebs = "0.11.0"
+aws-sdk-ec2 = "0.11.0"
+aws-smithy-http = "0.41.0"
+aws-types = "0.11.0"
+tokio = { version = "~1.14", features = ["full"] }
 sha2 = "0.10.2"
 bytes = "1"
 base64 = "0.13.0"
 futures = "0.3.21"
 nix = { version = "0.24.1", default-features = false, features = ["ioctl"] }
-rusoto_core = { version = "0.48.0", default-features = false }
-rusoto_credential = "0.48.0"
-rusoto_ebs = { version = "0.48.0", default-features = false }
-rusoto_ec2 = { version = "0.48.0", default-features = false }
-rusoto_signature = "0.48.0"
 snafu = "0.7"
 indicatif = "0.16.2"
 tempfile = "3.3.0"

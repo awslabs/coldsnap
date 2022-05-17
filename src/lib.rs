@@ -9,11 +9,11 @@ A library that uses the Amazon EBS direct APIs to work with snapshots.
 Downloading a snapshot into a disk image:
 ```
 use coldsnap::SnapshotDownloader;
-use rusoto_ebs::EbsClient;
+use aws_sdk_ebs::Client as EbsClient;
 use std::path::Path;
 
 # async fn doc() {
-let client = EbsClient::new(rusoto_core::Region::UsWest2);
+let client = EbsClient::new(&aws_config::from_env().region("us-west-2").load().await);
 let downloader = SnapshotDownloader::new(client);
 let path = Path::new("./disk.img");
 
@@ -26,11 +26,11 @@ downloader.download_to_file("snap-1234", &path, None)
 Uploading a disk image into a snapshot:
 ```
 use coldsnap::SnapshotUploader;
-use rusoto_ebs::EbsClient;
+use aws_sdk_ebs::Client as EbsClient;
 use std::path::Path;
 
 # async fn doc() {
-let client = EbsClient::new(rusoto_core::Region::UsWest2);
+let client = EbsClient::new(&aws_config::from_env().region("us-west-2").load().await);
 let uploader = SnapshotUploader::new(client);
 let path = Path::new("./disk.img");
 
@@ -43,10 +43,10 @@ let snapshot_id = uploader.upload_from_file(&path, None, None, None)
 Waiting for a snapshot to be completed:
 ```
 use coldsnap::SnapshotWaiter;
-use rusoto_ec2::Ec2Client;
+use aws_sdk_ec2::Client as Ec2Client;
 
 # async fn doc() {
-let client = Ec2Client::new(rusoto_core::Region::UsWest2);
+let client = Ec2Client::new(&aws_config::from_env().region("us-west-2").load().await);
 let waiter = SnapshotWaiter::new(client);
 
 waiter.wait_for_completed("snap-1234")
