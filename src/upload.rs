@@ -6,11 +6,12 @@ Upload Amazon EBS snapshots.
 */
 
 use crate::block_device::get_block_device_size;
+use aws_sdk_ebs::model::{ChecksumAggregationMethod, ChecksumAlgorithm};
+use aws_sdk_ebs::types::ByteStream;
+use aws_sdk_ebs::Client as EbsClient;
 use bytes::BytesMut;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
-use rusoto_ebs::{CompleteSnapshotRequest, PutSnapshotBlockRequest, StartSnapshotRequest};
-use rusoto_ebs::{Ebs, EbsClient};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 use std::cmp;
@@ -20,7 +21,7 @@ use std::ffi::OsStr;
 use std::io::SeekFrom;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicI32, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::fs::{self, File};
@@ -38,9 +39,10 @@ const SNAPSHOT_BLOCK_RETRY_SCALE: u64 = 2;
 // 12 retries with scale 2 gives us 132 seconds, chosen because it got past "snapshot does not
 // exist" errors in testing.
 const SNAPSHOT_BLOCK_ATTEMPTS: u64 = 12;
-const SNAPSHOT_TIMEOUT_MINUTES: i64 = 10;
-const SHA256_ALGORITHM: &str = "SHA256";
-const LINEAR_METHOD: &str = "LINEAR";
+const SNAPSHOT_TIMEOUT_MINUTES: i32 = 10;
+const SHA256_ALGORITHM: ChecksumAlgorithm = ChecksumAlgorithm::ChecksumAlgorithmSha256;
+const LINEAR_METHOD: ChecksumAggregationMethod =
+    ChecksumAggregationMethod::ChecksumAggregationLinear;
 
 pub struct SnapshotUploader {
     ebs_client: EbsClient,
@@ -98,10 +100,16 @@ impl SnapshotUploader {
 
         // Start the snapshot, which gives us the ID and block size we need.
         let (snapshot_id, block_size) = self.start_snapshot(volume_size, description).await?;
-        let file_blocks = (file_size + block_size - 1) / block_size;
+        let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
+        let file_blocks =
+            i32::try_from(file_blocks).with_context(|_| error::ConvertNumberSnafu {
+                what: "calculate file blocks",
+                number: file_blocks.to_string(),
+                target: "i32",
+            })?;
 
         // We skip sparse blocks, so we need to keep track of how many we send.
-        let changed_blocks_count = Arc::new(AtomicI64::new(0));
+        let changed_blocks_count = Arc::new(AtomicI32::new(0));
 
         // Track the hashes of uploaded blocks for the final hash.
         let block_digests = Arc::new(Mutex::new(BTreeMap::new()));
@@ -133,7 +141,7 @@ impl SnapshotUploader {
             // The file length may not be an exact multiple of the block size,
             // so we need to keep track of how many bytes are left for the call
             // to `read_exact` later.
-            let data_length = cmp::min(block_size, remaining_data);
+            let data_length = cmp::min(i64::from(block_size), remaining_data);
             let data_length =
                 usize::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
                     what: "data length",
@@ -154,7 +162,7 @@ impl SnapshotUploader {
                 ebs_client: self.ebs_client.clone(),
             });
 
-            remaining_data -= block_size;
+            remaining_data -= i64::from(block_size);
         }
 
         // Distribute the work across a fixed number of concurrent workers.
@@ -237,17 +245,14 @@ impl SnapshotUploader {
     }
 
     /// Start a new snapshot and return the ID and block size for subsequent puts.
-    async fn start_snapshot(&self, volume_size: i64, description: String) -> Result<(String, i64)> {
-        let start_request = StartSnapshotRequest {
-            volume_size,
-            description: Some(description),
-            timeout: Some(SNAPSHOT_TIMEOUT_MINUTES),
-            ..Default::default()
-        };
-
+    async fn start_snapshot(&self, volume_size: i64, description: String) -> Result<(String, i32)> {
         let start_response = self
             .ebs_client
-            .start_snapshot(start_request)
+            .start_snapshot()
+            .volume_size(volume_size)
+            .set_description(Some(description))
+            .set_timeout(Some(SNAPSHOT_TIMEOUT_MINUTES))
+            .send()
             .await
             .context(error::StartSnapshotSnafu)?;
 
@@ -265,19 +270,17 @@ impl SnapshotUploader {
     async fn complete_snapshot(
         &self,
         snapshot_id: &str,
-        changed_blocks_count: i64,
+        changed_blocks_count: i32,
         checksum: &str,
     ) -> Result<()> {
-        let complete_request = CompleteSnapshotRequest {
-            snapshot_id: snapshot_id.to_string(),
-            changed_blocks_count,
-            checksum: Some(checksum.to_string()),
-            checksum_algorithm: Some(SHA256_ALGORITHM.to_string()),
-            checksum_aggregation_method: Some(LINEAR_METHOD.to_string()),
-        };
-
         self.ebs_client
-            .complete_snapshot(complete_request)
+            .complete_snapshot()
+            .snapshot_id(snapshot_id)
+            .changed_blocks_count(changed_blocks_count)
+            .set_checksum(Some(checksum.to_string()))
+            .set_checksum_algorithm(Some(SHA256_ALGORITHM))
+            .set_checksum_aggregation_method(Some(LINEAR_METHOD))
+            .send()
             .await
             .context(error::CompleteSnapshotSnafu { snapshot_id })?;
 
@@ -346,25 +349,22 @@ impl SnapshotUploader {
 
         let data_length = block.len();
         let data_length =
-            i64::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
+            i32::try_from(data_length).with_context(|_| error::ConvertNumberSnafu {
                 what: "data length",
                 number: data_length.to_string(),
-                target: "i64",
+                target: "i32",
             })?;
-
-        let block_request = PutSnapshotBlockRequest {
-            snapshot_id: snapshot_id.to_string(),
-            block_index,
-            block_data: block.freeze(),
-            data_length,
-            checksum: block_hash,
-            checksum_algorithm: SHA256_ALGORITHM.to_string(),
-            ..Default::default()
-        };
 
         context
             .ebs_client
-            .put_snapshot_block(block_request)
+            .put_snapshot_block()
+            .snapshot_id(snapshot_id.to_string())
+            .block_index(block_index)
+            .block_data(ByteStream::from(block.freeze()))
+            .data_length(data_length)
+            .checksum(block_hash)
+            .checksum_algorithm(SHA256_ALGORITHM)
+            .send()
             .await
             .context(error::PutSnapshotBlockSnafu {
                 snapshot_id,
@@ -389,18 +389,19 @@ impl SnapshotUploader {
 struct BlockContext {
     path: PathBuf,
     data_length: usize,
-    block_index: i64,
-    block_size: i64,
+    block_index: i32,
+    block_size: i32,
     snapshot_id: String,
-    changed_blocks_count: Arc<AtomicI64>,
-    block_digests: Arc<Mutex<BTreeMap<i64, Vec<u8>>>>,
-    block_errors: Arc<Mutex<BTreeMap<i64, Error>>>,
+    changed_blocks_count: Arc<AtomicI32>,
+    block_digests: Arc<Mutex<BTreeMap<i32, Vec<u8>>>>,
+    block_errors: Arc<Mutex<BTreeMap<i32, Error>>>,
     progress_bar: Arc<Option<ProgressBar>>,
     ebs_client: EbsClient,
 }
 
 /// Potential errors while reading a local file and uploading a snapshot.
 mod error {
+    use aws_sdk_ebs::error::{CompleteSnapshotError, PutSnapshotBlockError, StartSnapshotError};
     use snafu::Snafu;
     use std::path::PathBuf;
 
@@ -446,7 +447,7 @@ mod error {
 
         #[snafu(display("Failed to start snapshot: {}", source))]
         StartSnapshot {
-            source: rusoto_core::RusotoError<rusoto_ebs::StartSnapshotError>,
+            source: aws_sdk_ebs::types::SdkError<StartSnapshotError>,
         },
 
         #[snafu(display(
@@ -458,7 +459,7 @@ mod error {
         PutSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: rusoto_core::RusotoError<rusoto_ebs::PutSnapshotBlockError>,
+            source: aws_sdk_ebs::types::SdkError<PutSnapshotBlockError>,
         },
 
         #[snafu(display(
@@ -476,7 +477,7 @@ mod error {
         #[snafu(display("Failed to complete snapshot '{}': {}", snapshot_id, source))]
         CompleteSnapshot {
             snapshot_id: String,
-            source: rusoto_core::RusotoError<rusoto_ebs::CompleteSnapshotError>,
+            source: aws_sdk_ebs::types::SdkError<CompleteSnapshotError>,
         },
 
         #[snafu(display("Failed to find snapshot ID"))]

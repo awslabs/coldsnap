@@ -10,23 +10,23 @@ repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
 [features]
-default = ["rusoto-native-tls"]
-rusoto-native-tls = ["rusoto_core/native-tls", "rusoto_ebs/native-tls", "rusoto_ec2/native-tls"]
-rusoto-rustls = ["rusoto_core/rustls", "rusoto_ebs/rustls", "rusoto_ec2/rustls"]
+default = ["aws-sdk-rust-native-tls"]
+aws-sdk-rust-native-tls = ["aws-config/native-tls", "aws-sdk-ebs/native-tls", "aws-sdk-ec2/native-tls"]
+aws-sdk-rust-rustls = ["aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls"]
 
 [dependencies]
 argh = "0.1.7"
-tokio = { version = "1.8", features = ["fs", "io-util", "time"] }
+aws-config = "0.12.0"
+aws-sdk-ebs = "0.12.0"
+aws-sdk-ec2 = "0.12.0"
+aws-smithy-http = "0.42.0"
+aws-types = "0.12.0"
+tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
 sha2 = "0.10.2"
 bytes = "1"
 base64 = "0.13.0"
 futures = "0.3.21"
 nix = { version = "0.24.1", default-features = false, features = ["ioctl"] }
-rusoto_core = { version = "0.48.0", default-features = false }
-rusoto_credential = "0.48.0"
-rusoto_ebs = { version = "0.48.0", default-features = false }
-rusoto_ec2 = { version = "0.48.0", default-features = false }
-rusoto_signature = "0.48.0"
 snafu = "0.7"
 indicatif = "0.16.2"
 tempfile = "3.3.0"
