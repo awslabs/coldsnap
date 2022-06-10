@@ -16,7 +16,7 @@ aws-sdk-rust-rustls = ["aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/r
 
 [dependencies]
 argh = "0.1.7"
-aws-config = "0.12.0"
+aws-config = "0.13.0"
 aws-sdk-ebs = "0.12.0"
 aws-sdk-ec2 = "0.12.0"
 aws-smithy-http = "0.42.0"
