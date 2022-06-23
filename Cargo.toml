@@ -18,7 +18,7 @@ aws-sdk-rust-rustls = ["aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/r
 argh = "0.1.7"
 aws-config = "0.12.0"
 aws-sdk-ebs = "0.12.0"
-aws-sdk-ec2 = "0.12.0"
+aws-sdk-ec2 = "0.14.0"
 aws-smithy-http = "0.42.0"
 aws-types = "0.12.0"
 tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
