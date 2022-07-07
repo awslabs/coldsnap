@@ -5,11 +5,13 @@ on:
     branches: [develop]
     paths-ignore:
       - '**.md'
+      - '.github/dependabot.yml'
   # triggers when a PR is merged
   push:
     branches: [develop]
     paths-ignore:
       - '**.md'
+      - '.github/dependabot.yml'
 jobs:
   build:
     strategy:
