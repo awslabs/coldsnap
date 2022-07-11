@@ -294,12 +294,28 @@ impl SnapshotUploader {
             .await
             .context(error::OpenFileSnafu { path })?;
 
-        let offset = context.block_index * context.block_size;
-        let offset = u64::try_from(offset).with_context(|_| error::ConvertNumberSnafu {
-            what: "file offset",
-            number: offset.to_string(),
-            target: "u64",
-        })?;
+        let block_index_u64: u64 =
+            u64::try_from(context.block_index).with_context(|_| error::ConvertNumberSnafu {
+                what: "block_index",
+                number: context.block_index.to_string(),
+                target: "u64",
+            })?;
+        let block_size_u64: u64 =
+            u64::try_from(context.block_size).with_context(|_| error::ConvertNumberSnafu {
+                what: "block_size",
+                number: context.block_size.to_string(),
+                target: "u64",
+            })?;
+
+        let offset: u64 = block_index_u64
+            .checked_mul(block_size_u64)
+            .with_context(|| error::CheckedMultiplicationSnafu {
+                right: "block_size",
+                right_number: context.block_size.to_string(),
+                left: "block_index",
+                left_number: context.block_index.to_string(),
+                target: "u64",
+            })?;
 
         f.seek(SeekFrom::Start(offset))
             .await
@@ -492,6 +508,22 @@ mod error {
             number: String,
             target: String,
             source: std::num::TryFromIntError,
+        },
+
+        #[snafu(display(
+            "Overflowed multiplying {} ({}) and {} ({}) inside a {}",
+            left,
+            left_number,
+            right,
+            right_number,
+            target
+        ))]
+        CheckedMultiplication {
+            left: String,
+            left_number: String,
+            right: String,
+            right_number: String,
+            target: String,
         },
     }
 }
