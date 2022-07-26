@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2022-07-26
+### Changed
+- Limited nix features ([#143], thanks @rtzoeller!)
+- Removed Rusoto in favor of AWS SDK Rust [#145]
+- Added support for files over 2^31 bytes ([#171], thanks @grahamc and @cole-c!)
+- Update dependencies [#147], [#149], [#168], [#179]
+
 ## [0.3.3] - 2022-04-26
 ### Changed
 - Add support for uploading from a block device.  [#92]
@@ -38,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.3.3...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.4.0...develop
+[0.4.0]: https://github.com/awslabs/coldsnap/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/awslabs/coldsnap/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/awslabs/coldsnap/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/awslabs/coldsnap/compare/v0.3.0...v0.3.1
@@ -98,3 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#132]: https://github.com/awslabs/coldsnap/pull/132
 [#134]: https://github.com/awslabs/coldsnap/pull/134
 [#135]: https://github.com/awslabs/coldsnap/pull/135
+[#143]: https://github.com/awslabs/coldsnap/pull/143
+[#145]: https://github.com/awslabs/coldsnap/pull/145
+[#147]: https://github.com/awslabs/coldsnap/pull/147
+[#149]: https://github.com/awslabs/coldsnap/pull/149
+[#168]: https://github.com/awslabs/coldsnap/pull/168
+[#171]: https://github.com/awslabs/coldsnap/pull/171
+[#179]: https://github.com/awslabs/coldsnap/pull/179
+
