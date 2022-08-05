@@ -30,4 +30,4 @@ nix = { version = "0.24.2", default-features = false, features = ["ioctl"] }
 snafu = "0.7"
 indicatif = "0.17.0"
 tempfile = "3.3.0"
-async-trait = "0.1.56"
+async-trait = "0.1.57"
