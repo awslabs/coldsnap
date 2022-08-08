@@ -341,12 +341,20 @@ impl SnapshotDownloader {
             .await
             .context(error::OpenFileSnafu { path })?;
 
-        let offset = context.block_index * block_size;
-        let offset = u64::try_from(offset).with_context(|_| error::ConvertNumberSnafu {
-            what: "file offset",
-            number: offset.to_string(),
-            target: "u64",
-        })?;
+        // Calculate the offset to write the block into the target file
+        let block_index_u64 =
+            u64::try_from(context.block_index).with_context(|_| error::ConvertNumberSnafu {
+                what: "block index",
+                number: context.block_index.to_string(),
+                target: "u64",
+            })?;
+        let block_size_u64 =
+            u64::try_from(block_size).with_context(|_| error::ConvertNumberSnafu {
+                what: "block size",
+                number: block_size.to_string(),
+                target: "u64",
+            })?;
+        let offset = block_index_u64 * block_size_u64;
 
         f.seek(SeekFrom::Start(offset))
             .await
