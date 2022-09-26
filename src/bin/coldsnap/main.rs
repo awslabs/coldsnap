@@ -58,7 +58,7 @@ async fn run() -> Result<()> {
                 .download_to_file(
                     &download_args.snapshot_id,
                     &download_args.file,
-                    progress_bar,
+                    progress_bar?,
                 )
                 .await
                 .context(error::DownloadSnapshotSnafu)?;
@@ -73,7 +73,7 @@ async fn run() -> Result<()> {
                     &upload_args.file,
                     upload_args.volume_size,
                     upload_args.description.as_deref(),
-                    progress_bar,
+                    progress_bar?,
                 )
                 .await
                 .context(error::UploadSnapshotSnafu)?;
@@ -107,17 +107,18 @@ async fn run() -> Result<()> {
 }
 
 /// Create a progress bar to show status of snapshot blocks, if wanted.
-fn build_progress_bar(no_progress: bool, verb: &str) -> Option<ProgressBar> {
+fn build_progress_bar(no_progress: bool, verb: &str) -> Result<Option<ProgressBar>> {
     if no_progress {
-        return None;
+        return Ok(None);
     }
     let progress_bar = ProgressBar::new(0);
     progress_bar.set_style(
         ProgressStyle::default_bar()
             .template(&["  ", verb, "  [{bar:50.white/black}] {pos}/{len} ({eta})"].concat())
+            .context(error::ProgressBarTemplateSnafu)?
             .progress_chars("=> "),
     );
-    Some(progress_bar)
+    Ok(Some(progress_bar))
 }
 
 /// Create a config to build an AWS SDK client
@@ -285,6 +286,11 @@ mod error {
 
         #[snafu(display("Refusing to overwrite existing file '{}' without --force", path.display()))]
         FileExists { path: std::path::PathBuf },
+
+        #[snafu(display("Failed to parse progress style template: {}", source))]
+        ProgressBarTemplate {
+            source: indicatif::style::TemplateError,
+        },
 
         #[snafu(display("Failed to upload snapshot: {}", source))]
         UploadSnapshot { source: coldsnap::UploadError },
