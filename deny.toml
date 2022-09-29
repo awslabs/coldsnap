@@ -23,7 +23,7 @@ allow = [
 ]
 
 exceptions = [
-    { name = "unicode-ident", version = "1.0.2", allow = ["MIT", "Apache-2.0", "Unicode-DFS-2016"] },
+    { name = "unicode-ident", version = "1.0.4", allow = ["MIT", "Apache-2.0", "Unicode-DFS-2016"] },
 ]
 
 [[licenses.clarify]]
@@ -46,8 +46,6 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip-tree = [
-    # argh_derive pulls in an older version of heck
-    { name = "argh_derive", version = "0.1.7" }, 
 ]
 
 [sources]
