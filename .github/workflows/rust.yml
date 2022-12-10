@@ -4,14 +4,14 @@ on:
   pull_request:
     branches: [develop]
     paths-ignore:
-      - '**.md'
-      - '.github/dependabot.yml'
+      - "**.md"
+      - ".github/dependabot.yml"
   # triggers when a PR is merged
   push:
     branches: [develop]
     paths-ignore:
-      - '**.md'
-      - '.github/dependabot.yml'
+      - "**.md"
+      - ".github/dependabot.yml"
 jobs:
   build:
     strategy:
@@ -23,22 +23,25 @@ jobs:
           - features: aws-sdk-rust-native-tls
             additional_flags: --no-default-features
     env:
-       CARGO_HOME: .cargo
+      CARGO_HOME: .cargo
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/cache@v3
-      with:
-        path: |
-          .cargo
-          target
-        # you can edit the .github/cache_bust file if you need to clear the cache
-        key: ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}
-    - run: cargo test --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
-    - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
-    - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
-    - run: cargo fmt -- --check
-    - run: cargo install --version 0.12.2 cargo-deny --locked
-    - run: cargo deny --features ${{ matrix.features }} --no-default-features check --disable-fetch licenses bans sources
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            .cargo
+            target
+          # you can edit the .github/cache_bust file if you need to clear the cache
+          key: ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}
+      - run: rustup default 1.64.0
+      - run: rustup component add rustfmt
+      - run: rustup component add clippy
+      - run: cargo test --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+      - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
+      - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
+      - run: cargo fmt -- --check
+      - run: cargo install --version 0.12.2 cargo-deny --locked
+      - run: cargo deny --features ${{ matrix.features }} --no-default-features check --disable-fetch licenses bans sources
