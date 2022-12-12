@@ -26,7 +26,7 @@ base64 = "0.13.1"
 bytes = "1"
 futures = "0.3.21"
 indicatif = "0.17.1"
-nix = { version = "0.25.0", default-features = false, features = ["ioctl"] }
+nix = { version = "0.26.1", default-features = false, features = ["ioctl"] }
 sha2 = "0.10.5"
 snafu = "0.7"
 tempfile = "3.3.0"
