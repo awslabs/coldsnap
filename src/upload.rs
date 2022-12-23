@@ -12,6 +12,7 @@ use aws_sdk_ebs::Client as EbsClient;
 use bytes::BytesMut;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
+use log::debug;
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 use std::cmp;
@@ -99,6 +100,7 @@ impl SnapshotUploader {
         );
 
         // Start the snapshot, which gives us the ID and block size we need.
+        debug!("Uploading {}G to snapshot...", volume_size);
         let (snapshot_id, block_size) = self.start_snapshot(volume_size, description).await?;
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
@@ -178,6 +180,11 @@ impl SnapshotUploader {
                     let block_result = self.upload_block(&context).await;
                     let mut block_errors = context.block_errors.lock().expect("poisoned");
                     if let Err(e) = block_result {
+                        debug!(
+                            "Error uploading block, attempt {} of {}",
+                            attempt + 1,
+                            SNAPSHOT_BLOCK_ATTEMPTS
+                        );
                         block_errors.insert(context.block_index, e);
                         continue;
                     }
