@@ -207,10 +207,7 @@ impl SnapshotUploader {
             .expect("poisoned");
         let block_errors_count = block_errors.keys().len();
         if block_errors_count != 0 {
-            let error_report: String = block_errors
-                .iter()
-                .map(|(_, e)| format!("\n{}", e))
-                .collect();
+            let error_report: String = block_errors.values().map(|e| e.to_string()).collect();
             error::PutSnapshotBlocksSnafu {
                 error_count: block_errors_count,
                 snapshot_id: snapshot_id.clone(),
@@ -365,7 +362,7 @@ impl SnapshotUploader {
         let mut block_digest = Sha256::new();
         block_digest.update(&block);
         let hash_bytes = block_digest.finalize();
-        let block_hash = base64::encode(&hash_bytes);
+        let block_hash = base64::encode(hash_bytes);
 
         let snapshot_id = &context.snapshot_id;
         let block_index = context.block_index;

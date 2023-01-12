@@ -36,12 +36,12 @@ jobs:
           key: ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ hashFiles('.github/cache_bust') }}-${{ hashFiles('.github/workflows/rust.yml') }}-${{ runner.os }}-${{ matrix.features }}
-      - run: rustup default 1.64.0
+      - run: rustup default 1.66.1
       - run: rustup component add rustfmt
       - run: rustup component add clippy
       - run: cargo test --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
       - run: cargo build --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked
       - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
       - run: cargo fmt -- --check
-      - run: cargo install --version 0.12.2 cargo-deny --locked
+      - run: cargo install --version 0.13.5 cargo-deny --locked
       - run: cargo deny --features ${{ matrix.features }} --no-default-features check --disable-fetch licenses bans sources
