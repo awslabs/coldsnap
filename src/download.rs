@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use aws_sdk_ebs::Client as EbsClient;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
+use log::debug;
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 use std::collections::BTreeMap;
@@ -75,6 +76,7 @@ impl SnapshotDownloader {
             FileTarget::new_target(path)?
         };
 
+        debug!("Writing {}G to {}...", snapshot.volume_size, path.display());
         target.grow(snapshot.volume_size * GIBIBYTE).await?;
         self.write_snapshot_blocks(snapshot, target.write_path()?, progress_bar)
             .await?;
@@ -130,10 +132,15 @@ impl SnapshotDownloader {
         let download = stream::iter(block_contexts).for_each_concurrent(
             SNAPSHOT_BLOCK_WORKERS,
             |context| async move {
-                for _ in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
                     let block_result = self.download_block(&context).await;
                     let mut block_errors = context.block_errors.lock().expect("poisoned");
                     if let Err(e) = block_result {
+                        debug!(
+                            "Error downloading block, attempt {} of {}",
+                            i + 1,
+                            SNAPSHOT_BLOCK_ATTEMPTS
+                        );
                         block_errors.insert(context.block_index, e);
                         continue;
                     }

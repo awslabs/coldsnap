@@ -13,7 +13,9 @@ use aws_smithy_http::endpoint::Endpoint;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
 use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
+use env_logger::{Builder, Env};
 use indicatif::{ProgressBar, ProgressStyle};
+use log::{debug, LevelFilter};
 use snafu::{ensure, ResultExt};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -33,6 +35,7 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let args: Args = argh::from_env();
+    init_logger(args.verbose);
 
     let client_config = build_client_config(args.region, args.profile, args.endpoint).await;
 
@@ -54,6 +57,11 @@ async fn run() -> Result<()> {
             );
 
             let progress_bar = build_progress_bar(download_args.no_progress, "Downloading");
+            debug!(
+                "Downloading snapshot {} to {}",
+                download_args.snapshot_id,
+                download_args.file.display()
+            );
             downloader
                 .download_to_file(
                     &download_args.snapshot_id,
@@ -67,7 +75,21 @@ async fn run() -> Result<()> {
         SubCommand::Upload(upload_args) => {
             let client = EbsClient::new(&client_config);
             let uploader = SnapshotUploader::new(client);
+            ensure!(
+                upload_args.file.file_name().is_some(),
+                error::ValidateFilenameSnafu {
+                    path: upload_args.file
+                }
+            );
+            ensure!(
+                upload_args.file.exists(),
+                error::FileDoesNotExistSnafu {
+                    path: upload_args.file
+                }
+            );
+
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
+            debug!("Uploading {}", upload_args.file.display());
             let snapshot_id = uploader
                 .upload_from_file(
                     &upload_args.file,
@@ -79,6 +101,11 @@ async fn run() -> Result<()> {
                 .context(error::UploadSnapshotSnafu)?;
             println!("{}", snapshot_id);
             if upload_args.wait {
+                debug!(
+                    "{} uploaded as snapshot {}, waiting for snapshot to be ready...",
+                    snapshot_id,
+                    upload_args.file.display()
+                );
                 let client = Ec2Client::new(&client_config);
                 let waiter = SnapshotWaiter::new(client);
                 waiter
@@ -96,6 +123,10 @@ async fn run() -> Result<()> {
                 wait_args.successes_required,
                 wait_args.max_attempts,
                 wait_args.seconds_between_attempts,
+            );
+            debug!(
+                "Waiting for snapshot {} to reach '{}'...",
+                wait_args.snapshot_id, wait_params.state
             );
             waiter
                 .wait(wait_args.snapshot_id, wait_params)
@@ -171,6 +202,23 @@ async fn build_client_config(
     config.load().await
 }
 
+/// Initializes the logger and sets logging level based on input.
+fn init_logger(verbose: bool) {
+    let log_level = if verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
+    // Set the default for everything to "error" unless RUST_LOG has been set to something else.
+    Builder::from_env(Env::default().default_filter_or("error"))
+        .format_timestamp(None)
+        .format_target(false)
+        // Set our own logging to what has been requested.
+        .filter(Some("coldsnap"), log_level)
+        .init();
+}
+
 #[derive(FromArgs, PartialEq, Debug)]
 /// Work with snapshots through the Amazon EBS direct APIs.
 struct Args {
@@ -188,6 +236,10 @@ struct Args {
     #[argh(option)]
     /// the profile to use
     profile: Option<String>,
+
+    #[argh(switch)]
+    /// enable verbose logging output
+    verbose: bool,
 }
 
 #[derive(FromArgs, PartialEq, Debug)]
@@ -286,6 +338,9 @@ mod error {
 
         #[snafu(display("Refusing to overwrite existing file '{}' without --force", path.display()))]
         FileExists { path: std::path::PathBuf },
+
+        #[snafu(display("Snapshot source file '{}' does not exist", path.display()))]
+        FileDoesNotExist { path: std::path::PathBuf },
 
         #[snafu(display("Failed to parse progress style template: {}", source))]
         ProgressBarTemplate {
