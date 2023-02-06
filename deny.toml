@@ -50,14 +50,10 @@ skip-tree = [
     # are using different versions of windows-sys. we skip the
     # dependency tree because windows-sys has many sub-crates
     # that differ in major version.
-    { name = "windows-sys", version = "=0.36.1" },
+    { name = "windows-sys", version = "=0.42.0" },
     # Conflict between tokio and env_logger dependency versions
-    { name = "hermit-abi", version = "0.1.19" },
+    { name = "hermit-abi", version = "=0.2.6" },
 ]
-
-[[bans.skip]]
-name = "windows_x86_64_msvc"
-version = "=0.36.1"
 
 [sources]
 # Deny crates from unknown registries or git repositories.

@@ -9,7 +9,6 @@ snapshots.
 use argh::FromArgs;
 use aws_sdk_ebs::Client as EbsClient;
 use aws_sdk_ec2::Client as Ec2Client;
-use aws_smithy_http::endpoint::Endpoint;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
 use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
@@ -190,9 +189,7 @@ async fn build_client_config(
     };
 
     let config: aws_config::ConfigLoader = match endpoint {
-        Some(endpoint) => {
-            config.endpoint_resolver(Endpoint::immutable(endpoint.parse().expect("valid URI")))
-        }
+        Some(endpoint) => config.endpoint_url(endpoint),
         None => {
             // Keep config the same
             config
