@@ -648,7 +648,7 @@ mod error {
             snapshot_id: String,
             block_index: i32,
             property: String,
-            source: aws_smithy_http::byte_stream::Error,
+            source: aws_smithy_http::byte_stream::error::Error,
         },
 
         #[snafu(display("Failed to find block size for '{}'", snapshot_id))]
