@@ -15,21 +15,21 @@ aws-sdk-rust-native-tls = ["aws-config/native-tls", "aws-sdk-ebs/native-tls", "a
 aws-sdk-rust-rustls = ["aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls"]
 
 [dependencies]
-argh = "0.1.10"
-async-trait = "0.1.64"
-aws-config = "0.54.1"
-aws-sdk-ebs = "0.24.0"
-aws-sdk-ec2 = "0.24.0"
-aws-smithy-http = "0.54.1"
-aws-types = "0.54.1"
-base64 = "0.13.1"
+argh = "0.1"
+async-trait = "0.1"
+aws-config = "0.54"
+aws-sdk-ebs = "0.24"
+aws-sdk-ec2 = "0.24"
+aws-smithy-http = "0.54"
+aws-types = "0.54"
+base64 = "0.13"
 bytes = "1"
 env_logger = "0.10"
-futures = "0.3.21"
-indicatif = "0.17.1"
+futures = "0.3"
+indicatif = "0.17"
 log = "0.4"
 nix = { version = "0.26", default-features = false, features = ["ioctl"] }
-sha2 = "0.10.6"
+sha2 = "0.10"
 snafu = "0.7"
-tempfile = "3.3.0"
+tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
