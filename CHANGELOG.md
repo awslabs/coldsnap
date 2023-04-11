@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2023-04-11
+### Security Fix
+- Bump openssl from 0.10.45 to 0.10.48 [#247]
+
+### Changed
+- Bump tokio from 1.25.0 to 1.26.0 [#239]
+
 ## [0.5.0] - 2023-03-08
 ### Changed
 - Add debug logging to help with troubleshooting [#220]
@@ -68,7 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.5.0...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.5.1...develop
+[0.5.1]: https://github.com/awslabs/coldsnap/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/awslabs/coldsnap/compare/v0.4.2...v0.5.0
 [0.4.3]: https://github.com/awslabs/coldsnap/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/awslabs/coldsnap/compare/v0.4.1...v0.4.2
@@ -144,4 +152,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#197]: https://github.com/awslabs/coldsnap/pull/197
 [#220]: https://github.com/awslabs/coldsnap/pull/220
 [#237]: https://github.com/awslabs/coldsnap/pull/237
+[#239]: https://github.com/awslabs/coldsnap/pull/239
+[#247]: https://github.com/awslabs/coldsnap/pull/247
 
