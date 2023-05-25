@@ -50,9 +50,15 @@ skip-tree = [
     # are using different versions of windows-sys. we skip the
     # dependency tree because windows-sys has many sub-crates
     # that differ in major version.
-    { name = "windows-sys", version = "=0.42.0" },
+    { name = "windows-sys", version = "=0.42" },
     # Conflict between tokio and env_logger dependency versions
     { name = "hermit-abi", version = "=0.2.6" },
+    # argh and snafu use an old version of syn
+    { name = "syn", version = "=1" },
+    # indicatif is using an old version of portable-atomic
+    { name = "portable-atomic", version = "=0.3.20" },
+    # coldsnap is using an old version of base64
+    { name = "base64", version = "=0.13.1" },
 ]
 
 [sources]
