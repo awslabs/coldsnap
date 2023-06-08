@@ -5,7 +5,7 @@
 Wait for Amazon EBS snapshots to be in the desired state.
 */
 
-use aws_sdk_ec2::model::SnapshotState;
+use aws_sdk_ec2::types::SnapshotState;
 use aws_sdk_ec2::Client as Ec2Client;
 use snafu::{ensure, ResultExt, Snafu};
 use std::thread::sleep;
@@ -147,7 +147,7 @@ impl SnapshotWaiter {
 
 /// Potential errors while waiting for the snapshot.
 mod error {
-    use aws_sdk_ec2::error::DescribeSnapshotsError;
+    use aws_sdk_ec2::operation::describe_snapshots::DescribeSnapshotsError;
     use snafu::Snafu;
 
     #[derive(Debug, Snafu)]
@@ -157,8 +157,8 @@ mod error {
         DescribeSnapshots {
             // Clippy gets upset if this isn't a box
             // The size difference between this and the other enums is too much
-            #[snafu(source(from(aws_sdk_ec2::types::SdkError<DescribeSnapshotsError>, Box::new)))]
-            source: Box<aws_sdk_ec2::types::SdkError<DescribeSnapshotsError>>,
+            #[snafu(source(from(aws_sdk_ec2::error::SdkError<DescribeSnapshotsError>, Box::new)))]
+            source: Box<aws_sdk_ec2::error::SdkError<DescribeSnapshotsError>>,
         },
 
         #[snafu(display("Snapshot went to 'error' state"))]

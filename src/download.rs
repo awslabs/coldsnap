@@ -563,7 +563,10 @@ impl SnapshotWriteTarget for FileTarget {
 mod error {
     use aws_sdk_ebs::{
         self,
-        error::{GetSnapshotBlockError, ListSnapshotBlocksError},
+        operation::{
+            get_snapshot_block::GetSnapshotBlockError,
+            list_snapshot_blocks::ListSnapshotBlocksError,
+        },
     };
     use snafu::Snafu;
     use std::path::PathBuf;
@@ -617,7 +620,7 @@ mod error {
         #[snafu(display("Failed to list snapshot blocks '{}': {}", snapshot_id, source))]
         ListSnapshotBlocks {
             snapshot_id: String,
-            source: aws_sdk_ebs::types::SdkError<ListSnapshotBlocksError>,
+            source: aws_sdk_ebs::error::SdkError<ListSnapshotBlocksError>,
         },
 
         #[snafu(display("Failed to find volume size for '{}'", snapshot_id))]
@@ -701,7 +704,7 @@ mod error {
         GetSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: aws_sdk_ebs::types::SdkError<GetSnapshotBlockError>,
+            source: aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>,
         },
 
         #[snafu(display(

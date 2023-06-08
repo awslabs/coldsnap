@@ -6,8 +6,8 @@ Upload Amazon EBS snapshots.
 */
 
 use crate::block_device::get_block_device_size;
-use aws_sdk_ebs::model::{ChecksumAggregationMethod, ChecksumAlgorithm};
-use aws_sdk_ebs::types::ByteStream;
+use aws_sdk_ebs::primitives::ByteStream;
+use aws_sdk_ebs::types::{ChecksumAggregationMethod, ChecksumAlgorithm};
 use aws_sdk_ebs::Client as EbsClient;
 use bytes::BytesMut;
 use futures::stream::{self, StreamExt};
@@ -421,7 +421,10 @@ struct BlockContext {
 
 /// Potential errors while reading a local file and uploading a snapshot.
 mod error {
-    use aws_sdk_ebs::error::{CompleteSnapshotError, PutSnapshotBlockError, StartSnapshotError};
+    use aws_sdk_ebs::operation::{
+        complete_snapshot::CompleteSnapshotError, put_snapshot_block::PutSnapshotBlockError,
+        start_snapshot::StartSnapshotError,
+    };
     use snafu::Snafu;
     use std::path::PathBuf;
 
@@ -467,7 +470,7 @@ mod error {
 
         #[snafu(display("Failed to start snapshot: {}", source))]
         StartSnapshot {
-            source: aws_sdk_ebs::types::SdkError<StartSnapshotError>,
+            source: aws_sdk_ebs::error::SdkError<StartSnapshotError>,
         },
 
         #[snafu(display(
@@ -479,7 +482,7 @@ mod error {
         PutSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: aws_sdk_ebs::types::SdkError<PutSnapshotBlockError>,
+            source: aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>,
         },
 
         #[snafu(display(
@@ -497,7 +500,7 @@ mod error {
         #[snafu(display("Failed to complete snapshot '{}': {}", snapshot_id, source))]
         CompleteSnapshot {
             snapshot_id: String,
-            source: aws_sdk_ebs::types::SdkError<CompleteSnapshotError>,
+            source: aws_sdk_ebs::error::SdkError<CompleteSnapshotError>,
         },
 
         #[snafu(display("Failed to find snapshot ID"))]
