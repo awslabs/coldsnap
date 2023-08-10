@@ -8,6 +8,8 @@ Download Amazon EBS snapshots.
 use crate::block_device::get_block_device_size;
 use async_trait::async_trait;
 use aws_sdk_ebs::Client as EbsClient;
+use base64::engine::general_purpose::STANDARD as base64_engine;
+use base64::Engine as _;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
 use log::debug;
@@ -317,7 +319,7 @@ impl SnapshotDownloader {
         let mut block_digest = Sha256::new();
         block_digest.update(&block_data);
         let hash_bytes = block_digest.finalize();
-        let block_hash = base64::encode(hash_bytes);
+        let block_hash = base64_engine.encode(hash_bytes);
 
         ensure!(
             block_hash == expected_hash,
