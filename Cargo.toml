@@ -28,7 +28,7 @@ env_logger = "0.10"
 futures = "0.3"
 indicatif = "0.17"
 log = "0.4"
-nix = { version = "0.26", default-features = false, features = ["ioctl"] }
+nix = { version = "0.27", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
 snafu = "0.7"
 tempfile = "3"
