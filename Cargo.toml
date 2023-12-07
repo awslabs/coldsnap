@@ -10,6 +10,7 @@ repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
 [features]
+# This feature is for backward compatibility but has no effect.
 default = ["aws-sdk-rust-rustls"]
 aws-sdk-rust-rustls = [ "aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls" ]
 
@@ -30,4 +31,4 @@ nix = { version = "0.27", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
 snafu = "0.7"
 tempfile = "3"
-tokio = { version = "1", features = [ "fs", "io-util", "time", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
