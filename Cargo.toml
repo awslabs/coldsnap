@@ -10,18 +10,16 @@ repository = "https://github.com/awslabs/coldsnap"
 keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 
 [features]
-default = ["aws-sdk-rust-native-tls"]
-aws-sdk-rust-native-tls = ["aws-config/native-tls", "aws-sdk-ebs/native-tls", "aws-sdk-ec2/native-tls"]
-aws-sdk-rust-rustls = ["aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls"]
+default = ["aws-sdk-rust-rustls"]
+aws-sdk-rust-rustls = [ "aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls" ]
 
 [dependencies]
 argh = "0.1"
 async-trait = "0.1"
-aws-config = "0.55"
-aws-sdk-ebs = "0.28"
-aws-sdk-ec2 = "0.28"
-aws-smithy-http = "0.55"
-aws-types = "0.55"
+aws-config = { version = "1.0", features = ["behavior-version-latest"] }
+aws-sdk-ebs = "1.4"
+aws-sdk-ec2 = "1.4"
+aws-types = "1.0"
 base64 = "0.21"
 bytes = "1"
 env_logger = "0.10"
@@ -32,4 +30,4 @@ nix = { version = "0.27", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
 snafu = "0.7"
 tempfile = "3"
-tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = [ "fs", "io-util", "time", "macros", "rt-multi-thread"] }
