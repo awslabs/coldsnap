@@ -53,10 +53,6 @@ skip-tree = [
     { name = "windows-sys" },
     # argh and snafu use an old version of syn
     { name = "syn", version = "=1" },
-    # coldsnap is using an old version of base64
-    { name = "base64", version = "=0.13.1" },
-    # aws-sdk-rust is using an old version of fastrand
-    { name = "fastrand", version = "=1.9" },
     # several dependencies are using an old version of bitflags
     { name = "bitflags", version = "=1.3" },
 ]
