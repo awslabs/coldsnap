@@ -218,7 +218,7 @@ impl SnapshotUploader {
             .fail()?;
         }
 
-        let changed_blocks_count = changed_blocks_count.load(AtomicOrdering::SeqCst);
+        let changed_blocks_count = changed_blocks_count.load(AtomicOrdering::Relaxed);
 
         // Compute the "linear" hash - the hash of all hashes in block index order.
         let block_digests = Arc::try_unwrap(block_digests)
@@ -397,7 +397,7 @@ impl SnapshotUploader {
         block_digests.insert(block_index, hash_bytes.to_vec());
 
         let changed_blocks_count = &context.changed_blocks_count;
-        changed_blocks_count.fetch_add(1, AtomicOrdering::SeqCst);
+        changed_blocks_count.fetch_add(1, AtomicOrdering::Relaxed);
 
         if let Some(ref progress_bar) = *context.progress_bar {
             progress_bar.inc(1);
