@@ -21,7 +21,7 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-ebs = "1"
 aws-sdk-ec2 = "1"
 aws-types = "1"
-base64 = "0.21"
+base64 = "0.22"
 bytes = "1"
 env_logger = "0.10"
 futures = "0.3"
