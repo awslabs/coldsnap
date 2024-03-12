@@ -29,6 +29,6 @@ indicatif = "0.17"
 log = "0.4"
 nix = { version = "0.27", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
-snafu = "0.7"
+snafu = "0.8"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
