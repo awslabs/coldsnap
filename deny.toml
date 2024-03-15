@@ -46,13 +46,13 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip-tree = [
+    { name = "base64", version = "0.21" },
+    { name = "http", version = "0.2" },
     # windows-sys is not a direct dependency. mio and schannel
     # are using different versions of windows-sys. we skip the
     # dependency tree because windows-sys has many sub-crates
     # that differ in major version.
     { name = "windows-sys" },
-    # argh and snafu use an old version of syn
-    { name = "syn", version = "=1" },
     # several dependencies are using an old version of bitflags
     { name = "bitflags", version = "=1.3" },
 ]

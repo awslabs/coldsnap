@@ -1,6 +1,6 @@
 [package]
 name = "coldsnap"
-version = "0.6.0"
+version = "0.6.1"
 description = "A library and command-line interface for uploading and downloading Amazon EBS snapshots"
 authors = ["Ben Cressey <bcressey@amazon.com>"]
 license = "Apache-2.0"
@@ -21,14 +21,14 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-ebs = "1"
 aws-sdk-ec2 = "1"
 aws-types = "1"
-base64 = "0.21"
+base64 = "0.22"
 bytes = "1"
-env_logger = "0.10"
+env_logger = "0.11"
 futures = "0.3"
 indicatif = "0.17"
 log = "0.4"
-nix = { version = "0.27", default-features = false, features = ["ioctl"] }
+nix = { version = "0.28", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
-snafu = "0.7"
+snafu = "0.8"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
