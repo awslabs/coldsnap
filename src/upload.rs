@@ -51,6 +51,12 @@ pub struct SnapshotUploader {
     ebs_client: EbsClient,
 }
 
+struct SnapshotPrep {
+    snapshot_id: String,
+    file_size: i64,
+    block_size: i32,
+}
+
 impl SnapshotUploader {
     pub fn new(ebs_client: EbsClient) -> Self {
         SnapshotUploader { ebs_client }
@@ -70,7 +76,36 @@ impl SnapshotUploader {
         description: Option<&str>,
         progress_bar: Option<ProgressBar>,
     ) -> Result<String> {
-        let path = path.as_ref();
+        let SnapshotPrep {
+            snapshot_id,
+            file_size,
+            block_size,
+        } = self
+            .prepare_snapshot_upload(path.as_ref(), volume_size, description)
+            .await?;
+
+        self.upload_blocks_from_file(
+            path.as_ref(),
+            progress_bar,
+            file_size,
+            block_size,
+            &snapshot_id,
+        )
+        .await
+        .map_err(|e| {
+            eprintln!("Error during upload of {}", snapshot_id);
+            e
+        })?;
+
+        Ok(snapshot_id)
+    }
+
+    async fn prepare_snapshot_upload(
+        &self,
+        path: &Path,
+        volume_size: Option<i64>,
+        description: Option<&str>,
+    ) -> Result<SnapshotPrep> {
         let description = description.map(|s| s.to_string()).unwrap_or_else(|| {
             path.file_name()
                 .unwrap_or_else(|| OsStr::new(""))
@@ -104,6 +139,20 @@ impl SnapshotUploader {
         // Start the snapshot, which gives us the ID and block size we need.
         debug!("Uploading {}G to snapshot...", volume_size);
         let (snapshot_id, block_size) = self.start_snapshot(volume_size, description).await?;
+        Ok(SnapshotPrep {
+            snapshot_id,
+            file_size,
+            block_size,
+        })
+    }
+    async fn upload_blocks_from_file(
+        &self,
+        path: &Path,
+        progress_bar: Option<ProgressBar>,
+        file_size: i64,
+        block_size: i32,
+        snapshot_id: &str,
+    ) -> Result<()> {
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
             i32::try_from(file_blocks).with_context(|_| error::ConvertNumberSnafu {
@@ -158,7 +207,7 @@ impl SnapshotUploader {
                 data_length,
                 block_index: i,
                 block_size,
-                snapshot_id: snapshot_id.clone(),
+                snapshot_id: snapshot_id.to_string(),
                 changed_blocks_count: Arc::clone(&changed_blocks_count),
                 block_digests: Arc::clone(&block_digests),
                 block_errors: Arc::clone(&block_errors),
@@ -212,7 +261,7 @@ impl SnapshotUploader {
             let error_report: String = block_errors.values().map(|e| e.to_string()).collect();
             error::PutSnapshotBlocksSnafu {
                 error_count: block_errors_count,
-                snapshot_id: snapshot_id.clone(),
+                snapshot_id,
                 error_report,
             }
             .fail()?;
@@ -233,10 +282,10 @@ impl SnapshotUploader {
 
         let full_hash = base64_engine.encode(full_digest.finalize());
 
-        self.complete_snapshot(&snapshot_id, changed_blocks_count, &full_hash)
+        self.complete_snapshot(snapshot_id, changed_blocks_count, &full_hash)
             .await?;
 
-        Ok(snapshot_id)
+        Ok(())
     }
 
     /// Find the size of a file.
