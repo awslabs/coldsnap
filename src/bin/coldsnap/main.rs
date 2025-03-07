@@ -8,6 +8,7 @@ snapshots.
 
 use argh::FromArgs;
 use aws_sdk_ebs::Client as EbsClient;
+use aws_sdk_ebs::types::Tag;
 use aws_sdk_ec2::Client as Ec2Client;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
@@ -94,6 +95,7 @@ async fn run() -> Result<()> {
                     &upload_args.file,
                     upload_args.volume_size,
                     upload_args.description.as_deref(),
+                    Some(upload_args.tag),
                     progress_bar?,
                 )
                 .await
@@ -266,6 +268,27 @@ struct DownloadArgs {
     no_progress: bool,
 }
 
+
+/// Turn a user-specified tag string into a Tag object. Tags must start with 'KEY=' and
+/// denote the tag value with ',Value='.
+fn tag_from_str(input: &str) -> std::result::Result<Tag, String> {
+    const KEY_DELIMITER: &str = "Key=";
+    const VALUE_DELIMITER: &str = ",Value=";
+
+    if !input.starts_with(KEY_DELIMITER) {
+        return Err(format!("Tag inputs must start with '{KEY_DELIMITER}'").to_string());
+    }
+
+    if !input.contains(VALUE_DELIMITER) {
+        return Err(format!("Tag inputs must contain value entry with '{VALUE_DELIMITER}'").to_string());
+    }
+
+    //We have already validated the input contains both delimeters so there is no panic risk for unwrapping directly.
+    let k_v: (&str, &str) = input.split_once(KEY_DELIMITER).unwrap().1.split_once(VALUE_DELIMITER).unwrap();
+
+    Ok(Tag::builder().key(k_v.0).value(k_v.1).build())
+}
+
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "upload")]
 /// Upload a local file into an EBS snapshot.
@@ -280,6 +303,10 @@ struct UploadArgs {
     #[argh(option)]
     /// the description for the snapshot
     description: Option<String>,
+
+    #[argh(option, from_str_fn(tag_from_str))]
+    /// a tag for the snapshot
+    tag: Vec<Tag>,
 
     #[argh(switch)]
     /// disable the progress bar
