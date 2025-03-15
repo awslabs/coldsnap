@@ -7,8 +7,8 @@ snapshots.
 */
 
 use argh::FromArgs;
-use aws_sdk_ebs::Client as EbsClient;
 use aws_sdk_ebs::types::Tag;
+use aws_sdk_ebs::Client as EbsClient;
 use aws_sdk_ec2::Client as Ec2Client;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
@@ -268,7 +268,6 @@ struct DownloadArgs {
     no_progress: bool,
 }
 
-
 /// Turn a user-specified tag string into a Tag object. Tags must start with 'KEY=' and
 /// denote the tag value with ',Value='.
 fn tag_from_str(input: &str) -> std::result::Result<Tag, String> {
@@ -280,13 +279,55 @@ fn tag_from_str(input: &str) -> std::result::Result<Tag, String> {
     }
 
     if !input.contains(VALUE_DELIMITER) {
-        return Err(format!("Tag inputs must contain value entry with '{VALUE_DELIMITER}'").to_string());
+        return Err(
+            format!("Tag inputs must contain value entry with '{VALUE_DELIMITER}'").to_string(),
+        );
     }
 
-    //We have already validated the input contains both delimeters so there is no panic risk for unwrapping directly.
-    let k_v: (&str, &str) = input.split_once(KEY_DELIMITER).unwrap().1.split_once(VALUE_DELIMITER).unwrap();
+    //We have already validated the input contains both delimiters so there is no panic risk for unwrapping directly.
+    let (key, val) = input
+        .split_once(KEY_DELIMITER)
+        .unwrap()
+        .1
+        .split_once(VALUE_DELIMITER)
+        .unwrap();
 
-    Ok(Tag::builder().key(k_v.0).value(k_v.1).build())
+    if key.is_empty() {
+        return Err("Tag inputs must contain a non-empty key entry".to_string());
+    }
+    Ok(Tag::builder().key(key).value(val).build())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn valid_tag_inputs() {
+        for input in [
+            "Key=A,Value=",
+            "Key=A,Value=B",
+            "Key=A C,Value=D C",
+            "Key=Key=,Value=Value=",
+            "Key=A1+-=._:/@,,Value=B1+-=._:/@,",
+        ] {
+            assert!(tag_from_str(input).is_ok());
+        }
+    }
+
+    #[test]
+    fn invalid_tag_inputs() {
+        for input in [
+            "Key=A",
+            ",Value=B",
+            "Key=,Value=B",
+            "Kay=A,Value=B",
+            "Key=A,value=B",
+            "Kay=A,Key=A,Value=B",
+        ] {
+            assert!(tag_from_str(input).is_err());
+        }
+    }
 }
 
 #[derive(FromArgs, PartialEq, Debug)]

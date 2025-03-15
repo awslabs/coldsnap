@@ -254,7 +254,12 @@ impl SnapshotUploader {
     }
 
     /// Start a new snapshot and return the ID and block size for subsequent puts.
-    async fn start_snapshot(&self, volume_size: i64, description: String, tags: Option<Vec<Tag>>) -> Result<(String, i32)> {
+    async fn start_snapshot(
+        &self,
+        volume_size: i64,
+        description: String,
+        tags: Option<Vec<Tag>>,
+    ) -> Result<(String, i32)> {
         let start_response = self
             .ebs_client
             .start_snapshot()
