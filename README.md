@@ -48,6 +48,13 @@ Alternately, you can use `coldsnap wait`, which offers more flexibility in terms
 $ coldsnap wait snap-1234
 ```
 
+If you want to add tags to the uploaded snapshot, add `--tag Key=k,Value=v` for each desired tag:
+
+```
+$ coldsnap upload snap-1234 --tag "Key=MyKeyName,Value=MyKeyValue" --tag "Key=MyOtherKeyName,Value=MyOtherKeyValue"
+```
+
+
 ### Download
 
 Download an EBS snapshot into a local file:

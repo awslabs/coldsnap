@@ -7,7 +7,7 @@ Upload Amazon EBS snapshots.
 
 use crate::block_device::get_block_device_size;
 use aws_sdk_ebs::primitives::ByteStream;
-use aws_sdk_ebs::types::{ChecksumAggregationMethod, ChecksumAlgorithm};
+use aws_sdk_ebs::types::{ChecksumAggregationMethod, ChecksumAlgorithm, Tag};
 use aws_sdk_ebs::Client as EbsClient;
 use base64::engine::general_purpose::STANDARD as base64_engine;
 use base64::Engine as _;
@@ -62,12 +62,15 @@ impl SnapshotUploader {
     ///   file's size will be rounded up to the nearest GiB and used instead.
     /// * `description` is the snapshot description. If no description is provided (`None`), the
     ///   source file's name will be used instead.
+    /// * 'tags' is the tags to add to the snapshot. If no tags are provided ('None'), then no
+    ///   tags are added.
     /// * `progress_bar` is optional, since output to the terminal may not be wanted.
     pub async fn upload_from_file<P: AsRef<Path>>(
         &self,
         path: P,
         volume_size: Option<i64>,
         description: Option<&str>,
+        tags: Option<Vec<Tag>>,
         progress_bar: Option<ProgressBar>,
     ) -> Result<String> {
         let path = path.as_ref();
@@ -103,7 +106,7 @@ impl SnapshotUploader {
 
         // Start the snapshot, which gives us the ID and block size we need.
         debug!("Uploading {}G to snapshot...", volume_size);
-        let (snapshot_id, block_size) = self.start_snapshot(volume_size, description).await?;
+        let (snapshot_id, block_size) = self.start_snapshot(volume_size, description, tags).await?;
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
             i32::try_from(file_blocks).with_context(|_| error::ConvertNumberSnafu {
@@ -251,12 +254,18 @@ impl SnapshotUploader {
     }
 
     /// Start a new snapshot and return the ID and block size for subsequent puts.
-    async fn start_snapshot(&self, volume_size: i64, description: String) -> Result<(String, i32)> {
+    async fn start_snapshot(
+        &self,
+        volume_size: i64,
+        description: String,
+        tags: Option<Vec<Tag>>,
+    ) -> Result<(String, i32)> {
         let start_response = self
             .ebs_client
             .start_snapshot()
             .volume_size(volume_size)
             .set_description(Some(description))
+            .set_tags(tags)
             .set_timeout(Some(SNAPSHOT_TIMEOUT_MINUTES))
             .send()
             .await
