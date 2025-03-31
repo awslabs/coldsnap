@@ -12,14 +12,14 @@ keywords = ["AWS", "Amazon", "EBS", "snapshot"]
 [features]
 # This feature is for backward compatibility but has no effect.
 default = ["aws-sdk-rust-rustls"]
-aws-sdk-rust-rustls = [ "aws-config/rustls", "aws-sdk-ebs/rustls", "aws-sdk-ec2/rustls" ]
+aws-sdk-rust-rustls = [ ]
 
 [dependencies]
 argh = "0.1"
 async-trait = "0.1"
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-ebs = "1"
-aws-sdk-ec2 = "1"
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-sdk-ebs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-ec2 = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-types = "1"
 base64 = "0.22"
 bytes = "1"
@@ -27,7 +27,7 @@ env_logger = "0.11"
 futures = "0.3"
 indicatif = "0.17"
 log = "0.4"
-nix = { version = "0.28", default-features = false, features = ["ioctl"] }
+nix = { version = "0.29", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
 snafu = "0.8"
 tempfile = "3"
