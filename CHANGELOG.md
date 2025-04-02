@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-03-31
+### Changed
+- Update Dependencies [#364], [#365]
+- Add custom tags support for snapshot upload (thanks @jshwrig) [#378]
+
 ## [0.6.3] - 2024-12-19
 ### Changed
 - Dependency updates [#363]
@@ -97,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.6.3...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.7.0...develop
+[0.7.0]: https://github.com/awslabs/coldsnap/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/awslabs/coldsnap/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/awslabs/coldsnap/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/awslabs/coldsnap/compare/v0.6.0...v0.6.1
@@ -185,4 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#309]: https://github.com/awslabs/coldsnap/pull/309
 [#346]: https://github.com/awslabs/coldsnap/pull/346
 [#363]: https://github.com/awslabs/coldsnap/pull/363
+[#364]: https://github.com/awslabs/coldsnap/pull/364
+[#365]: https://github.com/awslabs/coldsnap/pull/365
+[#378]: https://github.com/awslabs/coldsnap/pull/378
 
