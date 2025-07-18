@@ -10,6 +10,7 @@ use argh::FromArgs;
 use aws_sdk_ebs::types::Tag;
 use aws_sdk_ebs::Client as EbsClient;
 use aws_sdk_ec2::Client as Ec2Client;
+use aws_types::app_name::AppName;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
 use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
@@ -198,7 +199,10 @@ async fn build_client_config(
         }
     };
 
-    config.load().await
+    let app_name =
+        AppName::new(format!("coldsnap-{}", env!("CARGO_PKG_VERSION"))).expect("valid app name");
+
+    config.app_name(app_name).load().await
 }
 
 /// Initializes the logger and sets logging level based on input.
