@@ -28,7 +28,7 @@ type Result<T> = std::result::Result<T, error::Error>;
 // https://github.com/shepmaster/snafu/issues/110
 async fn main() {
     if let Err(e) = run().await {
-        eprintln!("{}", e);
+        eprintln!("{e}");
         std::process::exit(1);
     }
 }
@@ -100,7 +100,7 @@ async fn run() -> Result<()> {
                 )
                 .await
                 .context(error::UploadSnapshotSnafu)?;
-            println!("{}", snapshot_id);
+            println!("{snapshot_id}");
             if upload_args.wait {
                 debug!(
                     "{} uploaded as snapshot {}, waiting for snapshot to be ready...",

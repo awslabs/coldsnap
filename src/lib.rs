@@ -76,14 +76,14 @@ pub use wait::{SnapshotWaiter, WaitParams};
 /// underlying errors to that printed message.
 pub(crate) fn error_stack(e: &dyn std::error::Error, n: u16) -> String {
     let mut current_error = e;
-    let mut s = format!("{}", e);
+    let mut s = format!("{e}");
 
     for _ in 0..n {
         current_error = match current_error.source() {
             None => return s,
             Some(next_error) => next_error,
         };
-        s += &format!(": {}", current_error)
+        s += &format!(": {current_error}")
     }
     s
 }

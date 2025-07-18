@@ -622,7 +622,8 @@ mod error {
         #[snafu(display("Failed to list snapshot blocks '{snapshot_id}': {source}", source = crate::error_stack(source, 2)))]
         ListSnapshotBlocks {
             snapshot_id: String,
-            source: aws_sdk_ebs::error::SdkError<ListSnapshotBlocksError>,
+            #[snafu(source(from(aws_sdk_ebs::error::SdkError<ListSnapshotBlocksError>, Box::new)))]
+            source: Box<aws_sdk_ebs::error::SdkError<ListSnapshotBlocksError>>,
         },
 
         #[snafu(display("Failed to find volume size for '{}'", snapshot_id))]
@@ -653,7 +654,8 @@ mod error {
             snapshot_id: String,
             block_index: i32,
             property: String,
-            source: aws_sdk_ebs::primitives::ByteStreamError,
+            #[snafu(source(from(aws_sdk_ebs::primitives::ByteStreamError, Box::new)))]
+            source: Box<aws_sdk_ebs::primitives::ByteStreamError>,
         },
 
         #[snafu(display("Failed to find block size for '{}'", snapshot_id))]
@@ -706,7 +708,8 @@ mod error {
         GetSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>,
+            #[snafu(source(from(aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>, Box::new)))]
+            source: Box<aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>>,
         },
 
         #[snafu(display(
