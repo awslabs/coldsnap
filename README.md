@@ -54,6 +54,14 @@ If you want to add tags to the uploaded snapshot, add `--tag Key=k,Value=v` for 
 $ coldsnap upload snap-1234 --tag "Key=MyKeyName,Value=MyKeyValue" --tag "Key=MyOtherKeyName,Value=MyOtherKeyValue"
 ```
 
+If you want to omit blocks of all zeroes when uploading a snapshot, add `--omit-zero-blocks`.
+This was the historical behavior, but is usually incompatible with encrypted EBS snapshots.
+Applications that write zeroes to blocks will expect to read zeroes back, and for that to work, the blocks must be present in the snapshot.
+If unsure, avoid using this option.
+
+```
+$ coldsnap upload disk.img --omit-zero-blocks
+```
 
 ### Download
 

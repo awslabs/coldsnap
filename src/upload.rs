@@ -47,6 +47,12 @@ const SHA256_ALGORITHM: ChecksumAlgorithm = ChecksumAlgorithm::ChecksumAlgorithm
 const LINEAR_METHOD: ChecksumAggregationMethod =
     ChecksumAggregationMethod::ChecksumAggregationLinear;
 
+#[derive(Clone)]
+pub enum ZeroBlocks {
+    Include,
+    Omit,
+}
+
 pub struct SnapshotUploader {
     ebs_client: EbsClient,
 }
@@ -72,6 +78,7 @@ impl SnapshotUploader {
         description: Option<&str>,
         tags: Option<Vec<Tag>>,
         progress_bar: Option<ProgressBar>,
+        zero_blocks: Option<ZeroBlocks>,
     ) -> Result<String> {
         let path = path.as_ref();
         let description = description.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -141,6 +148,8 @@ impl SnapshotUploader {
             None => Arc::new(None),
         };
 
+        let zero_blocks = zero_blocks.unwrap_or(ZeroBlocks::Include);
+
         // Create a context for each block that can be moved to another thread.
         let mut block_contexts = Vec::new();
         let mut remaining_data = file_size;
@@ -167,6 +176,7 @@ impl SnapshotUploader {
                 block_errors: Arc::clone(&block_errors),
                 progress_bar: Arc::clone(&progress_bar),
                 ebs_client: self.ebs_client.clone(),
+                zero_blocks: zero_blocks.clone(),
             });
 
             remaining_data -= i64::from(block_size);
@@ -356,13 +366,15 @@ impl SnapshotUploader {
                 offset,
             })?;
 
-        // Blocks of all zeroes should be omitted from the snapshot.
-        let sparse = block.iter().all(|&byte| byte == 0u8);
-        if sparse {
-            if let Some(ref progress_bar) = *context.progress_bar {
-                progress_bar.inc(1);
+        if let ZeroBlocks::Omit = context.zero_blocks {
+            let sparse = block.iter().all(|&byte| byte == 0u8);
+            // Found a block of all zeroes, and told to omit those from the snapshot.
+            if sparse {
+                if let Some(ref progress_bar) = *context.progress_bar {
+                    progress_bar.inc(1);
+                }
+                return Ok(());
             }
-            return Ok(());
         }
 
         // Blocks must be padded to the expected block size.
@@ -428,6 +440,7 @@ struct BlockContext {
     block_errors: Arc<Mutex<BTreeMap<i32, Error>>>,
     progress_bar: Arc<Option<ProgressBar>>,
     ebs_client: EbsClient,
+    zero_blocks: ZeroBlocks,
 }
 
 /// Potential errors while reading a local file and uploading a snapshot.
