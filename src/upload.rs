@@ -105,7 +105,7 @@ impl SnapshotUploader {
         );
 
         // Start the snapshot, which gives us the ID and block size we need.
-        debug!("Uploading {}G to snapshot...", volume_size);
+        debug!("Uploading {volume_size}G to snapshot...");
         let (snapshot_id, block_size) = self.start_snapshot(volume_size, description, tags).await?;
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
@@ -481,7 +481,8 @@ mod error {
 
         #[snafu(display("Failed to start snapshot: {source}", source = crate::error_stack(&source, 2)))]
         StartSnapshot {
-            source: aws_sdk_ebs::error::SdkError<StartSnapshotError>,
+            #[snafu(source(from(aws_sdk_ebs::error::SdkError<StartSnapshotError>, Box::new)))]
+            source: Box<aws_sdk_ebs::error::SdkError<StartSnapshotError>>,
         },
 
         #[snafu(display(
@@ -493,7 +494,8 @@ mod error {
         PutSnapshotBlock {
             snapshot_id: String,
             block_index: i64,
-            source: aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>,
+            #[snafu(source(from(aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>, Box::new)))]
+            source: Box<aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>>,
         },
 
         #[snafu(display(
@@ -511,7 +513,8 @@ mod error {
         #[snafu(display("Failed to complete snapshot '{}': {}", snapshot_id, source))]
         CompleteSnapshot {
             snapshot_id: String,
-            source: aws_sdk_ebs::error::SdkError<CompleteSnapshotError>,
+            #[snafu(source(from(aws_sdk_ebs::error::SdkError<CompleteSnapshotError>, Box::new)))]
+            source: Box<aws_sdk_ebs::error::SdkError<CompleteSnapshotError>>,
         },
 
         #[snafu(display("Failed to find snapshot ID"))]
