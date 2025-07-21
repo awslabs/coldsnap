@@ -1,3 +1,12 @@
+# Only check Linux target triples
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+]
+
 [licenses]
 # We want really high confidence when inferring licenses from text
 confidence-threshold = 0.93
@@ -8,13 +17,13 @@ allow = [
     "BSD-3-Clause",
     "BSL-1.0",
     #"CC0-1.0",  # OK but currently unused; commenting to prevent warning
-    "ISC",
+    #"ISC",  # OK but currently unused; commenting to prevent warning
     "MIT",
-    "OpenSSL",
+    #"OpenSSL", # OK but currently unused; commenting to prevent warning
     "Unicode-3.0",
     "Unlicense",
     #"Zlib",  # OK but currently unused; commenting to prevent warning
-    "Unicode-DFS-2016",
+    #"Unicode-DFS-2016", # OK but currently unused; commenting to prevent warning
 ]
 
 exceptions = [ ]
@@ -39,17 +48,11 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip= [
-    { name = "base64", version = "0.21" },
     { name = "http", version = "0.2" },
     { name = "http-body", version = "0.4" },
 ]
 
 skip-tree = [
-    # windows-sys is not a direct dependency. mio and schannel
-    # are using different versions of windows-sys. we skip the
-    # dependency tree because windows-sys has many sub-crates
-    # that differ in major version.
-    { name = "windows-sys" },
 ]
 
 [sources]
