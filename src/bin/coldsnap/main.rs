@@ -13,7 +13,9 @@ use aws_sdk_ec2::Client as Ec2Client;
 use aws_types::app_name::AppName;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
-use coldsnap::{SnapshotDownloader, SnapshotUploader, SnapshotWaiter, WaitParams};
+use coldsnap::{
+    SnapshotDownloader, SnapshotUploader, SnapshotWaiter, UploadZeroBlocks, WaitParams,
+};
 use env_logger::{Builder, Env};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, LevelFilter};
@@ -90,6 +92,10 @@ async fn run() -> Result<()> {
             );
 
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
+            let zero_blocks = upload_args
+                .omit_zero_blocks
+                .then_some(UploadZeroBlocks::Omit);
+
             debug!("Uploading {}", upload_args.file.display());
             let snapshot_id = uploader
                 .upload_from_file(
@@ -98,6 +104,7 @@ async fn run() -> Result<()> {
                     upload_args.description.as_deref(),
                     Some(upload_args.tag),
                     progress_bar?,
+                    zero_blocks,
                 )
                 .await
                 .context(error::UploadSnapshotSnafu)?;
@@ -360,6 +367,10 @@ struct UploadArgs {
     #[argh(switch)]
     /// wait for snapshot to be in "completed" state
     wait: bool,
+
+    #[argh(switch)]
+    /// omit blocks of all zeros when uploading
+    omit_zero_blocks: bool,
 }
 
 /// Turn a user-specified duration in seconds into a Duration object, for argh parsing.
