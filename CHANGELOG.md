@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-07-23
+### Changed
+- (breaking) Include blocks of all zeroes by default [#396]
+- Add user agent to API requests [#397]
+- Update dependencies [#387], [#388], [#390], [#392], [#394]
+- Fix clippy lints [#398]
+- Update `deny.toml` to check Linux targets [#399]
+
 ## [0.7.0] - 2025-03-31
 ### Changed
 - Update Dependencies [#364], [#365]
@@ -102,7 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.7.0...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.8.0...develop
+[0.8.0]: https://github.com/awslabs/coldsnap/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/awslabs/coldsnap/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/awslabs/coldsnap/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/awslabs/coldsnap/compare/v0.6.1...v0.6.2
@@ -194,4 +203,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#364]: https://github.com/awslabs/coldsnap/pull/364
 [#365]: https://github.com/awslabs/coldsnap/pull/365
 [#378]: https://github.com/awslabs/coldsnap/pull/378
-
+[#387]: https://github.com/awslabs/coldsnap/pull/387
+[#388]: https://github.com/awslabs/coldsnap/pull/388
+[#390]: https://github.com/awslabs/coldsnap/pull/390
+[#392]: https://github.com/awslabs/coldsnap/pull/392
+[#394]: https://github.com/awslabs/coldsnap/pull/394
+[#396]: https://github.com/awslabs/coldsnap/pull/396
+[#397]: https://github.com/awslabs/coldsnap/pull/397
+[#398]: https://github.com/awslabs/coldsnap/pull/398
+[#399]: https://github.com/awslabs/coldsnap/pull/399
