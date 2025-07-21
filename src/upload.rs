@@ -47,9 +47,14 @@ const SHA256_ALGORITHM: ChecksumAlgorithm = ChecksumAlgorithm::ChecksumAlgorithm
 const LINEAR_METHOD: ChecksumAggregationMethod =
     ChecksumAggregationMethod::ChecksumAggregationLinear;
 
-#[derive(Clone)]
+/// Specify how blocks of all zeroes should be handled.
+#[derive(Copy, Clone)]
 pub enum ZeroBlocks {
+    /// Include blocks of all zeroes in the snapshot.
     Include,
+    /// Omit blocks of all zeroes from the snapshot.
+    /// This is incompatible with encrypted snapshots if the application expects to read zeroes
+    /// from those blocks.
     Omit,
 }
 
@@ -71,6 +76,8 @@ impl SnapshotUploader {
     /// * 'tags' is the tags to add to the snapshot. If no tags are provided ('None'), then no
     ///   tags are added.
     /// * `progress_bar` is optional, since output to the terminal may not be wanted.
+    /// * `zero_blocks` specifies how zero blocks will be handled. If no value is provided
+    ///   (`None`), then all blocks will be uploaded.
     pub async fn upload_from_file<P: AsRef<Path>>(
         &self,
         path: P,
@@ -176,7 +183,7 @@ impl SnapshotUploader {
                 block_errors: Arc::clone(&block_errors),
                 progress_bar: Arc::clone(&progress_bar),
                 ebs_client: self.ebs_client.clone(),
-                zero_blocks: zero_blocks.clone(),
+                zero_blocks,
             });
 
             remaining_data -= i64::from(block_size);
