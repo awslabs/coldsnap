@@ -25,7 +25,7 @@ base64 = "0.22"
 bytes = "1"
 env_logger = "0.11"
 futures = "0.3"
-indicatif = "0.17"
+indicatif = "0.18"
 log = "0.4"
 nix = { version = "0.30", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
