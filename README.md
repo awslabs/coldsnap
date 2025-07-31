@@ -63,6 +63,12 @@ If unsure, avoid using this option.
 $ coldsnap upload disk.img --omit-zero-blocks
 ```
 
+If you want to encrypt with a specific KMS key when uploading a snapshot, add `--kms-key-id` and the desired ARN.
+
+```
+$ coldsnap upload disk.img --kms-key-id arn:aws:kms:us-west-2:444455556666:key/1a2b3c4d-5e6f-1a2b-3c4d-5e6f1a2b3c4d
+```
+
 ### Download
 
 Download an EBS snapshot into a local file:

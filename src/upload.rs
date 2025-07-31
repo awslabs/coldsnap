@@ -78,6 +78,8 @@ impl SnapshotUploader {
     /// * `progress_bar` is optional, since output to the terminal may not be wanted.
     /// * `zero_blocks` specifies how zero blocks will be handled. If no value is provided
     ///   (`None`), then all blocks will be uploaded.
+    /// * `kms_key_id` is the KMS key ARN to use for encryption.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload_from_file<P: AsRef<Path>>(
         &self,
         path: P,
@@ -86,6 +88,7 @@ impl SnapshotUploader {
         tags: Option<Vec<Tag>>,
         progress_bar: Option<ProgressBar>,
         zero_blocks: Option<ZeroBlocks>,
+        kms_key_id: Option<String>,
     ) -> Result<String> {
         let path = path.as_ref();
         let description = description.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -120,7 +123,9 @@ impl SnapshotUploader {
 
         // Start the snapshot, which gives us the ID and block size we need.
         debug!("Uploading {volume_size}G to snapshot...");
-        let (snapshot_id, block_size) = self.start_snapshot(volume_size, description, tags).await?;
+        let (snapshot_id, block_size) = self
+            .start_snapshot(volume_size, description, tags, kms_key_id)
+            .await?;
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
             i32::try_from(file_blocks).with_context(|_| error::ConvertNumberSnafu {
@@ -276,17 +281,23 @@ impl SnapshotUploader {
         volume_size: i64,
         description: String,
         tags: Option<Vec<Tag>>,
+        kms_key_id: Option<String>,
     ) -> Result<(String, i32)> {
-        let start_response = self
+        let mut request = self
             .ebs_client
             .start_snapshot()
             .volume_size(volume_size)
             .set_description(Some(description))
             .set_tags(tags)
-            .set_timeout(Some(SNAPSHOT_TIMEOUT_MINUTES))
-            .send()
-            .await
-            .context(error::StartSnapshotSnafu)?;
+            .set_timeout(Some(SNAPSHOT_TIMEOUT_MINUTES));
+
+        if let Some(kms_key_id) = kms_key_id {
+            request = request
+                .set_encrypted(Some(true))
+                .set_kms_key_arn(Some(kms_key_id));
+        }
+
+        let start_response = request.send().await.context(error::StartSnapshotSnafu)?;
 
         let snapshot_id = start_response
             .snapshot_id

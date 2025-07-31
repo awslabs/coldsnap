@@ -34,7 +34,7 @@ let client = EbsClient::new(&aws_config::from_env().region("us-west-2").load().a
 let uploader = SnapshotUploader::new(client);
 let path = Path::new("./disk.img");
 
-let snapshot_id = uploader.upload_from_file(&path, None, None, None, None, None)
+let snapshot_id = uploader.upload_from_file(&path, None, None, None, None, None, None)
         .await
         .expect("failed to upload snapshot");
 # }
