@@ -105,6 +105,7 @@ async fn run() -> Result<()> {
                     Some(upload_args.tag),
                     progress_bar?,
                     zero_blocks,
+                    upload_args.kms_key_id,
                 )
                 .await
                 .context(error::UploadSnapshotSnafu)?;
@@ -359,6 +360,10 @@ struct UploadArgs {
     #[argh(option, from_str_fn(tag_from_str))]
     /// a tag for the snapshot
     tag: Vec<Tag>,
+
+    #[argh(option)]
+    /// KMS key ARN to use for encryption.
+    kms_key_id: Option<String>,
 
     #[argh(switch)]
     /// disable the progress bar
