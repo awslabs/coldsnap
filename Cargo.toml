@@ -17,7 +17,7 @@ aws-sdk-rust-rustls = [ ]
 [dependencies]
 argh = "0.1"
 async-trait = "0.1"
-aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "credentials-process", "default-https-client", "rt-tokio"] }
 aws-sdk-ebs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-ec2 = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-types = "1"
