@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2025-10-07
+### Added
+- Add support for specifying KMS key for snapshot encryption [#403]
+- Add support for credential-process method of AWS credential retrieval (thanks @ajrudzitis) [#415]
+
+### Changed
+- Update dependencies [#401], [#404], [#405], [#407], [#411], [#412], [#416], [#417]
+- Limit permissions of GITHUB_TOKEN in actions [#414]
+
 ## [0.8.0] - 2025-07-23
 ### Changed
 - (breaking) Include blocks of all zeroes by default [#396]
@@ -110,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.8.0...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.9.0...develop
+[0.9.0]: https://github.com/awslabs/coldsnap/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/awslabs/coldsnap/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/awslabs/coldsnap/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/awslabs/coldsnap/compare/v0.6.2...v0.6.3
@@ -212,3 +222,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#397]: https://github.com/awslabs/coldsnap/pull/397
 [#398]: https://github.com/awslabs/coldsnap/pull/398
 [#399]: https://github.com/awslabs/coldsnap/pull/399
+[#401]: https://github.com/awslabs/coldsnap/pull/401
+[#403]: https://github.com/awslabs/coldsnap/pull/403
+[#404]: https://github.com/awslabs/coldsnap/pull/404
+[#405]: https://github.com/awslabs/coldsnap/pull/405
+[#407]: https://github.com/awslabs/coldsnap/pull/407
+[#411]: https://github.com/awslabs/coldsnap/pull/411
+[#412]: https://github.com/awslabs/coldsnap/pull/412
+[#414]: https://github.com/awslabs/coldsnap/pull/414
+[#415]: https://github.com/awslabs/coldsnap/pull/415
+[#416]: https://github.com/awslabs/coldsnap/pull/416
+[#417]: https://github.com/awslabs/coldsnap/pull/417
