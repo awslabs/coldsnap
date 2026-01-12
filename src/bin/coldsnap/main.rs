@@ -7,6 +7,8 @@ snapshots.
 */
 
 use argh::FromArgs;
+use aws_config::default_provider::credentials::DefaultCredentialsChain;
+use aws_config::default_provider::region::DefaultRegionChain;
 use aws_sdk_ebs::types::Tag;
 use aws_sdk_ebs::Client as EbsClient;
 use aws_sdk_ec2::Client as Ec2Client;
@@ -168,49 +170,52 @@ async fn build_client_config(
     profile: Option<String>,
     endpoint: Option<String>,
 ) -> SdkConfig {
-    let config: aws_config::ConfigLoader = match (region, &profile) {
-        (Some(region), _) => {
-            // Region option passed in
-            aws_config::from_env().region(Region::new(region))
-        }
-        (None, Some(profile)) => {
-            // Take region from profile
-            aws_config::from_env().region(
-                aws_config::profile::ProfileFileRegionProvider::builder()
-                    .profile_name(profile)
-                    .build(),
-            )
-        }
-        (None, None) => {
-            // No region or profile passed in, use defaults
-            aws_config::from_env()
-        }
-    };
-
-    let config = if let Some(profile) = &profile {
-        // Add profile credential provider
-        config.credentials_provider(
-            aws_config::profile::ProfileFileCredentialsProvider::builder()
-                .profile_name(profile)
-                .build(),
-        )
-    } else {
-        // Keep config unchanged
-        config
-    };
-
-    let config: aws_config::ConfigLoader = match endpoint {
-        Some(endpoint) => config.endpoint_url(endpoint),
-        None => {
-            // Keep config the same
-            config
-        }
-    };
-
     let app_name =
         AppName::new(format!("coldsnap-{}", env!("CARGO_PKG_VERSION"))).expect("valid app name");
+    let mut config = aws_config::from_env().app_name(app_name);
 
-    config.app_name(app_name).load().await
+    config = match (region, &profile) {
+        (Some(region), Some(profile)) => {
+            let region = Region::new(region);
+            config.region(region.clone()).credentials_provider(
+                DefaultCredentialsChain::builder()
+                    .profile_name(profile)
+                    .region(region.clone())
+                    .build()
+                    .await,
+            )
+        }
+        (Some(region), None) => {
+            let region = Region::new(region);
+            config.region(region.clone()).credentials_provider(
+                DefaultCredentialsChain::builder()
+                    .region(region.clone())
+                    .build()
+                    .await,
+            )
+        }
+        (None, Some(profile)) => {
+            let region = DefaultRegionChain::builder()
+                .profile_name(profile)
+                .build()
+                .region()
+                .await;
+            config.region(region.clone()).credentials_provider(
+                DefaultCredentialsChain::builder()
+                    .profile_name(profile)
+                    .region(region.clone())
+                    .build()
+                    .await,
+            )
+        }
+        (None, None) => config,
+    };
+
+    if let Some(endpoint) = &endpoint {
+        config = config.endpoint_url(endpoint);
+    }
+
+    config.load().await
 }
 
 /// Initializes the logger and sets logging level based on input.
