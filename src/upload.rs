@@ -147,13 +147,19 @@ impl SnapshotUploader {
         // We may have a progress bar to update.
         let progress_bar = match progress_bar {
             Some(pb) => {
-                let pb_length = file_blocks;
-                let pb_length =
-                    u64::try_from(pb_length).with_context(|_| error::ConvertNumberSnafu {
+                let pb_length = u64::try_from(file_blocks).with_context(|_| {
+                    error::ConvertNumberSnafu {
                         what: "progress bar length",
-                        number: pb_length.to_string(),
+                        number: file_blocks.to_string(),
                         target: "u64",
-                    })?;
+                    }
+                })? * u64::try_from(block_size).with_context(|_| {
+                    error::ConvertNumberSnafu {
+                        what: "block size",
+                        number: block_size.to_string(),
+                        target: "u64",
+                    }
+                })?;
                 pb.set_length(pb_length);
                 Arc::new(Some(pb))
             }
@@ -389,7 +395,7 @@ impl SnapshotUploader {
             // Found a block of all zeroes, and told to omit those from the snapshot.
             if sparse {
                 if let Some(ref progress_bar) = *context.progress_bar {
-                    progress_bar.inc(1);
+                    progress_bar.inc(block_size_u64);
                 }
                 return Ok(());
             }
@@ -439,7 +445,7 @@ impl SnapshotUploader {
         changed_blocks_count.fetch_add(1, AtomicOrdering::Relaxed);
 
         if let Some(ref progress_bar) = *context.progress_bar {
-            progress_bar.inc(1);
+            progress_bar.inc(block_size_u64);
         }
 
         Ok(())
