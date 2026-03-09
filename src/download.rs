@@ -79,7 +79,7 @@ impl SnapshotDownloader {
         let completed_blocks = match DownloadManifest::load(path)? {
             Some(manifest) => {
                 // Validate that the partial file exists when we have a manifest
-                if let Some(write_path) = target.write_path().ok() {
+                if let Ok(write_path) = target.write_path() {
                     if !write_path.exists() {
                         debug!(
                             "Manifest exists but partial file '{}' is missing, starting fresh",
@@ -120,7 +120,10 @@ impl SnapshotDownloader {
         };
 
         debug!("Writing {}G to {}...", snapshot.volume_size, path.display());
-        target.grow(snapshot.volume_size * GIBIBYTE).await?;
+        let snapshot_volume_size = snapshot.volume_size;
+        let snapshot_block_size = snapshot.block_size;
+        let snapshot_total_blocks = snapshot.blocks.len();
+        target.grow(snapshot_volume_size * GIBIBYTE).await?;
 
         let write_path = target.write_path()?;
         self.write_snapshot_blocks(
@@ -131,6 +134,20 @@ impl SnapshotDownloader {
             path,
         )
         .await?;
+
+        // Save a final manifest before finalize so that if we crash between here
+        // and the rename, the next resume won't re-download the last batch of blocks.
+        {
+            let completed = completed_blocks.lock().expect("poisoned");
+            let manifest = DownloadManifest {
+                snapshot_id: snapshot_id.to_string(),
+                volume_size: snapshot_volume_size,
+                block_size: snapshot_block_size,
+                total_blocks: snapshot_total_blocks,
+                completed_blocks: completed.clone(),
+            };
+            manifest.save(path)?;
+        }
 
         target.finalize()?;
         DownloadManifest::remove(path)?;
@@ -251,9 +268,9 @@ impl SnapshotDownloader {
                             .insert(context.block_index);
 
                         // Periodically save manifest to survive crashes
-                        let count = blocks_since_save.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+                        let count = blocks_since_save.fetch_add(1, AtomicOrdering::SeqCst) + 1;
                         if count >= MANIFEST_SAVE_INTERVAL {
-                            blocks_since_save.store(0, AtomicOrdering::Relaxed);
+                            blocks_since_save.store(0, AtomicOrdering::SeqCst);
                             let completed = context.completed_blocks.lock().expect("poisoned");
                             let manifest = DownloadManifest {
                                 snapshot_id: manifest_meta.snapshot_id.clone(),
@@ -492,7 +509,12 @@ impl SnapshotDownloader {
                 number: block_size.to_string(),
                 target: "u64",
             })?;
-        let offset = block_index_u64 * block_size_u64;
+        let offset = block_index_u64
+            .checked_mul(block_size_u64)
+            .context(error::OffsetOverflowSnafu {
+                block_index: context.block_index,
+                block_size,
+            })?;
 
         f.seek(SeekFrom::Start(offset))
             .await
@@ -885,7 +907,7 @@ mod error {
         ))]
         UnexpectedBlockChecksumAlgorithm {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             checksum_algorithm: String,
         },
 
@@ -897,7 +919,7 @@ mod error {
         ))]
         UnexpectedBlockDataLength {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             data_length: i64,
         },
 
@@ -910,7 +932,7 @@ mod error {
         ))]
         BadBlockChecksum {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             block_hash: String,
             expected_hash: String,
         },
@@ -923,7 +945,7 @@ mod error {
         ))]
         GetSnapshotBlock {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             #[snafu(source(from(aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>, Box::new)))]
             source: Box<aws_sdk_ebs::error::SdkError<GetSnapshotBlockError>>,
         },
@@ -972,6 +994,16 @@ mod error {
             number: String,
             target: String,
             source: std::num::TryFromIntError,
+        },
+
+        #[snafu(display(
+            "Offset overflow: block_index {} * block_size {} overflows u64",
+            block_index,
+            block_size
+        ))]
+        OffsetOverflow {
+            block_index: i32,
+            block_size: i32,
         },
     }
 }

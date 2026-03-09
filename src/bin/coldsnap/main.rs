@@ -61,6 +61,33 @@ async fn run() -> Result<()> {
                 }
             );
 
+            // When --force is used, clean up any stale resume state from a
+            // previous download attempt so we start fresh.
+            if download_args.force {
+                let manifest_path = {
+                    let mut p = download_args.file.as_os_str().to_owned();
+                    p.push(".coldsnap-manifest");
+                    PathBuf::from(p)
+                };
+                let partial_path = {
+                    let mut p = download_args.file.as_os_str().to_owned();
+                    p.push(".coldsnap-partial");
+                    PathBuf::from(p)
+                };
+                if manifest_path.exists() {
+                    debug!("--force: removing stale manifest {}", manifest_path.display());
+                    std::fs::remove_file(&manifest_path).ok();
+                }
+                if partial_path.exists() {
+                    debug!("--force: removing stale partial file {}", partial_path.display());
+                    std::fs::remove_file(&partial_path).ok();
+                }
+                if download_args.file.exists() {
+                    debug!("--force: removing existing file {}", download_args.file.display());
+                    std::fs::remove_file(&download_args.file).ok();
+                }
+            }
+
             let progress_bar = build_progress_bar(download_args.no_progress, "Downloading");
             debug!(
                 "Downloading snapshot {} to {}",
@@ -278,7 +305,7 @@ struct DownloadArgs {
     file: PathBuf,
 
     #[argh(switch)]
-    /// overwrite an existing file
+    /// overwrite an existing file and discard any partial download state
     force: bool,
 
     #[argh(switch)]
