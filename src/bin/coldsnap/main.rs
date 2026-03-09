@@ -156,10 +156,11 @@ fn build_progress_bar(no_progress: bool, verb: &str) -> Result<Option<ProgressBa
     }
     let progress_bar = ProgressBar::new(0);
     progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template(&["  ", verb, "  [{bar:50.white/black}] {pos}/{len} ({eta})"].concat())
+        ProgressStyle::with_template(&format!(
+            "  {verb}  [{{bar:40.cyan/blue}}] {{bytes}}/{{total_bytes}} ({{bytes_per_sec}}, {{eta}}) [{{elapsed_precise}}]"
+        ))
             .context(error::ProgressBarTemplateSnafu)?
-            .progress_chars("=> "),
+            .progress_chars("█▉▊▋▌▍▎▏ "),
     );
     Ok(Some(progress_bar))
 }

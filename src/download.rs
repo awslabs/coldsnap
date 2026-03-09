@@ -13,15 +13,16 @@ use base64::Engine as _;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::convert::TryFrom;
-use std::io::SeekFrom;
+use std::io::{SeekFrom, Write};
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use tempfile::NamedTempFile;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
@@ -66,23 +67,73 @@ impl SnapshotDownloader {
             .file_name()
             .context(error::ValidateFileNameSnafu { path })?;
 
-        // Find the overall volume size, the block size, and the metadata we need for each block:
-        // the index, which lets us calculate the offset into the volume; and the token, which we
-        // need to retrieve it.
         let snapshot: Snapshot = self.list_snapshot_blocks(snapshot_id).await?;
 
         let mut target = if BlockDeviceTarget::is_valid(path).await? {
             BlockDeviceTarget::new_target(path)?
         } else {
-            // If not block assume file for now
             FileTarget::new_target(path)?
+        };
+
+        // Load or create download manifest for resume support
+        let completed_blocks = match DownloadManifest::load(path)? {
+            Some(manifest) => {
+                // Validate that the partial file exists when we have a manifest
+                if let Some(write_path) = target.write_path().ok() {
+                    if !write_path.exists() {
+                        debug!(
+                            "Manifest exists but partial file '{}' is missing, starting fresh",
+                            write_path.display()
+                        );
+                        DownloadManifest::remove(path)?;
+                        Arc::new(Mutex::new(HashSet::new()))
+                    } else {
+                        ensure!(
+                            manifest.snapshot_id == snapshot_id
+                                && manifest.volume_size == snapshot.volume_size
+                                && manifest.block_size == snapshot.block_size,
+                            error::ManifestMismatchSnafu { path }
+                        );
+                        debug!(
+                            "Resuming download: {}/{} blocks already completed",
+                            manifest.completed_blocks.len(),
+                            manifest.total_blocks
+                        );
+                        Arc::new(Mutex::new(manifest.completed_blocks))
+                    }
+                } else {
+                    ensure!(
+                        manifest.snapshot_id == snapshot_id
+                            && manifest.volume_size == snapshot.volume_size
+                            && manifest.block_size == snapshot.block_size,
+                        error::ManifestMismatchSnafu { path }
+                    );
+                    debug!(
+                        "Resuming download: {}/{} blocks already completed",
+                        manifest.completed_blocks.len(),
+                        manifest.total_blocks
+                    );
+                    Arc::new(Mutex::new(manifest.completed_blocks))
+                }
+            }
+            None => Arc::new(Mutex::new(HashSet::new())),
         };
 
         debug!("Writing {}G to {}...", snapshot.volume_size, path.display());
         target.grow(snapshot.volume_size * GIBIBYTE).await?;
-        self.write_snapshot_blocks(snapshot, target.write_path()?, progress_bar)
-            .await?;
+
+        let write_path = target.write_path()?;
+        self.write_snapshot_blocks(
+            snapshot,
+            write_path,
+            progress_bar,
+            Arc::clone(&completed_blocks),
+            path,
+        )
+        .await?;
+
         target.finalize()?;
+        DownloadManifest::remove(path)?;
 
         Ok(())
     }
@@ -92,79 +143,153 @@ impl SnapshotDownloader {
         snapshot: Snapshot,
         write_path: &Path,
         progress_bar: Option<ProgressBar>,
+        completed_blocks: Arc<Mutex<HashSet<i32>>>,
+        manifest_path: &Path,
     ) -> Result<()> {
-        // Collect errors encountered while downloading blocks, since we can't
-        // return a result directly through `for_each_concurrent`.
         let block_errors = Arc::new(Mutex::new(BTreeMap::new()));
 
-        // We may have a progress bar to update.
+        let total_blocks = snapshot.blocks.len();
+
+        // Filter out already-completed blocks
+        let already_done = {
+            let completed = completed_blocks.lock().expect("poisoned");
+            completed.len()
+        };
+
+        let block_size_u64 =
+            u64::try_from(snapshot.block_size).with_context(|_| error::ConvertNumberSnafu {
+                what: "block size",
+                number: snapshot.block_size.to_string(),
+                target: "u64",
+            })?;
+
         let progress_bar = match progress_bar {
             Some(pb) => {
-                let pb_length = snapshot.blocks.len();
-                let pb_length =
-                    u64::try_from(pb_length).with_context(|_| error::ConvertNumberSnafu {
-                        what: "progress bar length",
-                        number: pb_length.to_string(),
+                let total_bytes = u64::try_from(total_blocks).with_context(|_| {
+                    error::ConvertNumberSnafu {
+                        what: "total blocks",
+                        number: total_blocks.to_string(),
                         target: "u64",
-                    })?;
-                pb.set_length(pb_length);
+                    }
+                })? * block_size_u64;
+                pb.set_length(total_bytes);
+                let already_done_bytes = u64::try_from(already_done).with_context(|_| {
+                    error::ConvertNumberSnafu {
+                        what: "already done blocks",
+                        number: already_done.to_string(),
+                        target: "u64",
+                    }
+                })? * block_size_u64;
+                pb.set_position(already_done_bytes);
+                if already_done > 0 {
+                    pb.reset_eta();
+                }
                 Arc::new(Some(pb))
             }
             None => Arc::new(None),
         };
 
-        // Create a context for each block that can be moved to another thread.
         let mut block_contexts = Vec::new();
-        for SnapshotBlock { index, token } in snapshot.blocks {
-            block_contexts.push(BlockContext {
-                path: write_path.to_path_buf(),
-                block_index: index,
-                block_token: token,
-                block_size: snapshot.block_size,
-                snapshot_id: snapshot.snapshot_id.clone(),
-                block_errors: Arc::clone(&block_errors),
-                progress_bar: Arc::clone(&progress_bar),
-                ebs_client: self.ebs_client.clone(),
-            });
+        {
+            let completed = completed_blocks.lock().expect("poisoned");
+            for SnapshotBlock { index, token } in snapshot.blocks {
+                if completed.contains(&index) {
+                    continue;
+                }
+                block_contexts.push(BlockContext {
+                    path: write_path.to_path_buf(),
+                    block_index: index,
+                    block_token: token,
+                    block_size: snapshot.block_size,
+                    snapshot_id: snapshot.snapshot_id.clone(),
+                    block_errors: Arc::clone(&block_errors),
+                    progress_bar: Arc::clone(&progress_bar),
+                    ebs_client: self.ebs_client.clone(),
+                    completed_blocks: Arc::clone(&completed_blocks),
+                });
+            }
         }
 
-        // Distribute the work across a fixed number of concurrent workers.
-        // New threads will be created by the runtime as needed, but we'll
-        // only process this many blocks at once to limit resource usage.
+        // Track how many blocks have completed since last manifest save, so we
+        // can periodically persist progress and survive crashes/kills.
+        let blocks_since_save = Arc::new(AtomicU32::new(0));
+        // Save the manifest every N blocks to limit data loss on crash.
+        const MANIFEST_SAVE_INTERVAL: u32 = 100;
+
+        let manifest_meta = Arc::new(ManifestMeta {
+            snapshot_id: snapshot.snapshot_id.clone(),
+            volume_size: snapshot.volume_size,
+            block_size: snapshot.block_size,
+            total_blocks,
+            manifest_path: manifest_path.to_path_buf(),
+        });
+
         let download = stream::iter(block_contexts).for_each_concurrent(
             SNAPSHOT_BLOCK_WORKERS,
-            |context| async move {
-                for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
-                    let block_result = self.download_block(&context).await;
-                    let mut block_errors = context.block_errors.lock().expect("poisoned");
-                    if let Err(e) = block_result {
-                        debug!(
-                            "Error downloading block, attempt {} of {}",
-                            i + 1,
-                            SNAPSHOT_BLOCK_ATTEMPTS
-                        );
-                        block_errors.insert(context.block_index, e);
-                        continue;
+            |context| {
+                let blocks_since_save = Arc::clone(&blocks_since_save);
+                let manifest_meta = Arc::clone(&manifest_meta);
+                async move {
+                    for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                        let block_result = self.download_block(&context).await;
+                        let mut block_errors = context.block_errors.lock().expect("poisoned");
+                        if let Err(e) = block_result {
+                            debug!(
+                                "Error downloading block, attempt {} of {}",
+                                i + 1,
+                                SNAPSHOT_BLOCK_ATTEMPTS
+                            );
+                            block_errors.insert(context.block_index, e);
+                            continue;
+                        }
+                        block_errors.remove(&context.block_index);
+                        // Track this block as completed
+                        context
+                            .completed_blocks
+                            .lock()
+                            .expect("poisoned")
+                            .insert(context.block_index);
+
+                        // Periodically save manifest to survive crashes
+                        let count = blocks_since_save.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+                        if count >= MANIFEST_SAVE_INTERVAL {
+                            blocks_since_save.store(0, AtomicOrdering::Relaxed);
+                            let completed = context.completed_blocks.lock().expect("poisoned");
+                            let manifest = DownloadManifest {
+                                snapshot_id: manifest_meta.snapshot_id.clone(),
+                                volume_size: manifest_meta.volume_size,
+                                block_size: manifest_meta.block_size,
+                                total_blocks: manifest_meta.total_blocks,
+                                completed_blocks: completed.clone(),
+                            };
+                            if let Err(e) = manifest.save(&manifest_meta.manifest_path) {
+                                debug!("Failed to save periodic manifest: {}", e);
+                            }
+                        }
+                        break;
                     }
-                    block_errors.remove(&context.block_index);
-                    break;
                 }
             },
         );
         download.await;
 
-        // At this point, all the concurrent jobs have finished, so all of the Arcs we copied have
-        // been dropped. Hence there's exactly one strong reference and it's safe to `try_unwrap`
-        // and `unwrap` the result to recover the contents. Any of the Mutexes inside are safe to
-        // unwrap unless they've been poisoned by a panic, in which case we also panic.
-
-        // Summarize any fatal errors.
         let block_errors = Arc::try_unwrap(block_errors)
             .expect("referenced")
             .into_inner()
             .expect("poisoned");
         let block_errors_count = block_errors.keys().len();
         if block_errors_count != 0 {
+            // Save progress before returning error so next run can resume
+            let completed = completed_blocks.lock().expect("poisoned");
+            let manifest = DownloadManifest {
+                snapshot_id: snapshot.snapshot_id.clone(),
+                volume_size: snapshot.volume_size,
+                block_size: snapshot.block_size,
+                total_blocks,
+                completed_blocks: completed.clone(),
+            };
+            manifest.save(manifest_path)?;
+
             let error_report: String = block_errors.values().map(|e| e.to_string()).collect();
             error::GetSnapshotBlocksSnafu {
                 error_count: block_errors_count,
@@ -331,11 +456,18 @@ impl SnapshotDownloader {
             }
         );
 
+        let block_size_u64 =
+            u64::try_from(block_size).with_context(|_| error::ConvertNumberSnafu {
+                what: "block size",
+                number: block_size.to_string(),
+                target: "u64",
+            })?;
+
         // Blocks of all zeroes can be omitted from the file.
         let sparse = block_data.iter().all(|&byte| byte == 0u8);
         if sparse {
             if let Some(ref progress_bar) = *context.progress_bar {
-                progress_bar.inc(1);
+                progress_bar.inc(block_size_u64);
             }
             return Ok(());
         }
@@ -379,7 +511,7 @@ impl SnapshotDownloader {
         f.flush().await.context(error::FlushFileSnafu { path })?;
 
         if let Some(ref progress_bar) = *context.progress_bar {
-            progress_bar.inc(1);
+            progress_bar.inc(block_size_u64);
         }
 
         Ok(())
@@ -400,6 +532,56 @@ struct SnapshotBlock {
     token: String,
 }
 
+/// Tracks download progress so that interrupted downloads can be resumed.
+#[derive(Debug, Serialize, Deserialize)]
+struct DownloadManifest {
+    snapshot_id: String,
+    volume_size: i64,
+    block_size: i32,
+    total_blocks: usize,
+    completed_blocks: HashSet<i32>,
+}
+
+impl DownloadManifest {
+    fn manifest_path(download_path: &Path) -> PathBuf {
+        let mut manifest = download_path.as_os_str().to_owned();
+        manifest.push(".coldsnap-manifest");
+        PathBuf::from(manifest)
+    }
+
+    fn load(path: &Path) -> Result<Option<Self>> {
+        let manifest_path = Self::manifest_path(path);
+        if !manifest_path.exists() {
+            return Ok(None);
+        }
+        let data = std::fs::read_to_string(&manifest_path)
+            .context(error::ReadManifestSnafu { path: &manifest_path })?;
+        let manifest: DownloadManifest = serde_json::from_str(&data)
+            .context(error::ParseManifestSnafu { path: &manifest_path })?;
+        Ok(Some(manifest))
+    }
+
+    fn save(&self, download_path: &Path) -> Result<()> {
+        let manifest_path = Self::manifest_path(download_path);
+        let data = serde_json::to_string(self)
+            .context(error::SerializeManifestSnafu { path: &manifest_path })?;
+        let mut file = std::fs::File::create(&manifest_path)
+            .context(error::WriteManifestSnafu { path: &manifest_path })?;
+        file.write_all(data.as_bytes())
+            .context(error::WriteManifestSnafu { path: &manifest_path })?;
+        Ok(())
+    }
+
+    fn remove(download_path: &Path) -> Result<()> {
+        let manifest_path = Self::manifest_path(download_path);
+        if manifest_path.exists() {
+            std::fs::remove_file(&manifest_path)
+                .context(error::RemoveManifestSnafu { path: &manifest_path })?;
+        }
+        Ok(())
+    }
+}
+
 /// Stores the context needed to download a snapshot block.
 struct BlockContext {
     path: PathBuf,
@@ -410,6 +592,16 @@ struct BlockContext {
     block_errors: Arc<Mutex<BTreeMap<i32, Error>>>,
     progress_bar: Arc<Option<ProgressBar>>,
     ebs_client: EbsClient,
+    completed_blocks: Arc<Mutex<HashSet<i32>>>,
+}
+
+/// Holds snapshot metadata needed for periodic manifest saves.
+struct ManifestMeta {
+    snapshot_id: String,
+    volume_size: i64,
+    block_size: i32,
+    total_blocks: usize,
+    manifest_path: PathBuf,
 }
 
 /// Shared interface for write targets.
@@ -488,75 +680,66 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
 /// Implements file operations for filesystem files.
 struct FileTarget {
     path: PathBuf,
-    temp_file: Option<NamedTempFile>,
+    partial_path: PathBuf,
+    is_resuming: bool,
 }
 
 impl FileTarget {
     fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
         let path = path.as_ref();
+        let mut partial = path.as_os_str().to_owned();
+        partial.push(".coldsnap-partial");
+        let partial_path = PathBuf::from(partial);
+        let is_resuming = partial_path.exists();
         Ok(Box::new(FileTarget {
             path: path.into(),
-            temp_file: None,
+            partial_path,
+            is_resuming,
         }))
     }
 }
 
 #[async_trait]
 impl SnapshotWriteTarget for FileTarget {
-    // truncate file to desired size
     async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.path.as_path();
-
-        // Create a temporary file and extend it to the required size.
-        let target_dir = path
-            .parent()
-            .context(error::ValidateParentDirectorySnafu { path })?;
-
-        let temp_file = NamedTempFile::new_in(target_dir)
-            .context(error::CreateTempFileSnafu { path: target_dir })?;
-
-        let temp_file_len = length;
-        let temp_file_len =
-            u64::try_from(temp_file_len).with_context(|_| error::ConvertNumberSnafu {
-                what: "temp file length",
-                number: temp_file_len.to_string(),
-                target: "u64",
-            })?;
-
-        temp_file
-            .as_file()
-            .set_len(temp_file_len)
-            .context(error::ExtendTempFileSnafu {
-                path: temp_file.as_ref(),
-            })?;
-
-        self.temp_file.replace(temp_file);
-
+        let file_len = u64::try_from(length).with_context(|_| error::ConvertNumberSnafu {
+            what: "file length",
+            number: length.to_string(),
+            target: "u64",
+        })?;
+        if self.is_resuming {
+            // Verify the partial file is the expected size; re-extend if truncated
+            let meta = std::fs::metadata(&self.partial_path)
+                .context(error::ReadFileMetadataSnafu { path: &self.partial_path })?;
+            if meta.len() != file_len {
+                debug!(
+                    "Partial file size {} doesn't match expected {}, re-extending",
+                    meta.len(),
+                    file_len
+                );
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&self.partial_path)
+                    .context(error::CreatePartialFileSnafu { path: &self.partial_path })?;
+                file.set_len(file_len)
+                    .context(error::ExtendPartialFileSnafu { path: &self.partial_path })?;
+            }
+            return Ok(());
+        }
+        let file = std::fs::File::create(&self.partial_path)
+            .context(error::CreatePartialFileSnafu { path: &self.partial_path })?;
+        file.set_len(file_len)
+            .context(error::ExtendPartialFileSnafu { path: &self.partial_path })?;
         Ok(())
     }
 
     fn write_path(&self) -> Result<&Path> {
-        let write_path = self
-            .temp_file
-            .as_ref()
-            .context(error::MissingTempFileSnafu {})?;
-
-        Ok(write_path.as_ref())
+        Ok(self.partial_path.as_path())
     }
 
-    // persist file to destination
     fn finalize(&mut self) -> Result<()> {
-        let temp_file = self
-            .temp_file
-            .take()
-            .context(error::MissingTempFileSnafu {})?;
-
-        let path = self.path.as_path();
-        temp_file
-            .into_temp_path()
-            .persist(path)
-            .context(error::PersistTempFileSnafu { path })?;
-
+        std::fs::rename(&self.partial_path, &self.path)
+            .context(error::PersistPartialFileSnafu { path: &self.path })?;
         Ok(())
     }
 }
@@ -598,26 +781,59 @@ mod error {
         #[snafu(display("Failed to find parent directory for file name '{}'", path.display()))]
         ValidateParentDirectory { path: PathBuf },
 
-        #[snafu(display("Failed to create temporary file in '{}': {}", path.display(), source))]
-        CreateTempFile {
+        #[snafu(display("Failed to create partial file '{}': {}", path.display(), source))]
+        CreatePartialFile {
             path: PathBuf,
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to extend temporary file '{}': {}", path.display(), source))]
-        ExtendTempFile {
+        #[snafu(display("Failed to extend partial file '{}': {}", path.display(), source))]
+        ExtendPartialFile {
             path: PathBuf,
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to persist temporary file '{}': {}", path.display(), source))]
-        PersistTempFile {
+        #[snafu(display("Failed to persist partial file '{}': {}", path.display(), source))]
+        PersistPartialFile {
             path: PathBuf,
-            source: tempfile::PathPersistError,
+            source: std::io::Error,
         },
 
-        #[snafu(display("Missing temporary file"))]
-        MissingTempFile {},
+        #[snafu(display("Failed to read manifest '{}': {}", path.display(), source))]
+        ReadManifest {
+            path: PathBuf,
+            source: std::io::Error,
+        },
+
+        #[snafu(display("Failed to parse manifest '{}': {}", path.display(), source))]
+        ParseManifest {
+            path: PathBuf,
+            source: serde_json::Error,
+        },
+
+        #[snafu(display("Failed to serialize manifest '{}': {}", path.display(), source))]
+        SerializeManifest {
+            path: PathBuf,
+            source: serde_json::Error,
+        },
+
+        #[snafu(display("Failed to write manifest '{}': {}", path.display(), source))]
+        WriteManifest {
+            path: PathBuf,
+            source: std::io::Error,
+        },
+
+        #[snafu(display("Failed to remove manifest '{}': {}", path.display(), source))]
+        RemoveManifest {
+            path: PathBuf,
+            source: std::io::Error,
+        },
+
+        #[snafu(display(
+            "Manifest mismatch for '{}': snapshot or parameters changed since last attempt",
+            path.display()
+        ))]
+        ManifestMismatch { path: PathBuf },
 
         #[snafu(display("Failed to list snapshot blocks '{snapshot_id}': {source}", source = crate::error_stack(source, 2)))]
         ListSnapshotBlocks {

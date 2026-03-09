@@ -29,6 +29,8 @@ indicatif = "0.18"
 log = "0.4"
 nix = { version = "0.30", default-features = false, features = ["ioctl"] }
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 snafu = "0.8"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "time", "macros", "rt-multi-thread"] }
