@@ -1,0 +1,68 @@
+name: Build Binaries
+permissions:
+  contents: write
+on:
+  push:
+    branches: [feat/resume-support]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: coldsnap-linux-amd64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: coldsnap-linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: coldsnap-macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: coldsnap-macos-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_HOME: .cargo
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cargo
+            target
+          key: build-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            build-${{ runner.os }}-${{ matrix.target }}
+
+      - run: rustup default stable
+      - run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Set linker for cross-compilation (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p .cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> .cargo/config.toml
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/coldsnap dist/${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
