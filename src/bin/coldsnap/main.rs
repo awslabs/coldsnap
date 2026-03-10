@@ -22,6 +22,7 @@ use env_logger::{Builder, Env};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, LevelFilter};
 use snafu::{ensure, ResultExt};
+use std::os::unix::fs::FileTypeExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -54,12 +55,19 @@ async fn run() -> Result<()> {
                     path: download_args.file
                 }
             );
-            ensure!(
-                download_args.force || !download_args.file.exists(),
-                error::FileExistsSnafu {
-                    path: download_args.file
-                }
-            );
+            let is_block_device = download_args.file.exists()
+                && std::fs::metadata(&download_args.file)
+                    .map(|m| m.file_type().is_block_device())
+                    .unwrap_or(false);
+
+            if !is_block_device {
+                ensure!(
+                    download_args.force || !download_args.file.exists(),
+                    error::FileExistsSnafu {
+                        path: download_args.file
+                    }
+                );
+            }
 
             // When --force is used, clean up any stale resume state from a
             // previous download attempt so we start fresh.
@@ -82,7 +90,8 @@ async fn run() -> Result<()> {
                     debug!("--force: removing stale partial file {}", partial_path.display());
                     std::fs::remove_file(&partial_path).ok();
                 }
-                if download_args.file.exists() {
+                // Only remove the target file if it's not a block device
+                if !is_block_device && download_args.file.exists() {
                     debug!("--force: removing existing file {}", download_args.file.display());
                     std::fs::remove_file(&download_args.file).ok();
                 }
@@ -142,8 +151,8 @@ async fn run() -> Result<()> {
             if upload_args.wait {
                 debug!(
                     "{} uploaded as snapshot {}, waiting for snapshot to be ready...",
-                    snapshot_id,
-                    upload_args.file.display()
+                    upload_args.file.display(),
+                    snapshot_id
                 );
                 let client = Ec2Client::new(&client_config);
                 let waiter = SnapshotWaiter::new(client);
@@ -371,6 +380,20 @@ mod test {
             "Kay=A,Key=A,Value=B",
         ] {
             assert!(tag_from_str(input).is_err());
+        }
+    }
+
+    #[test]
+    fn valid_seconds_input() {
+        assert_eq!(seconds_from_str("0").unwrap(), Duration::from_secs(0));
+        assert_eq!(seconds_from_str("1").unwrap(), Duration::from_secs(1));
+        assert_eq!(seconds_from_str("3600").unwrap(), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn invalid_seconds_input() {
+        for input in ["-1", "abc", ""] {
+            assert!(seconds_from_str(input).is_err());
         }
     }
 }

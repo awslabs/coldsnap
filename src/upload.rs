@@ -197,7 +197,7 @@ impl SnapshotUploader {
                 zero_blocks,
             });
 
-            remaining_data -= i64::from(block_size);
+            remaining_data = remaining_data.saturating_sub(i64::from(block_size));
         }
 
         // Distribute the work across a fixed number of concurrent workers.
@@ -530,7 +530,7 @@ mod error {
         ))]
         PutSnapshotBlock {
             snapshot_id: String,
-            block_index: i64,
+            block_index: i32,
             #[snafu(source(from(aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>, Box::new)))]
             source: Box<aws_sdk_ebs::error::SdkError<PutSnapshotBlockError>>,
         },

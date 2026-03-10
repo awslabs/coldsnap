@@ -8,8 +8,8 @@ Wait for Amazon EBS snapshots to be in the desired state.
 use aws_sdk_ec2::types::SnapshotState;
 use aws_sdk_ec2::Client as Ec2Client;
 use snafu::{ensure, ResultExt, Snafu};
-use std::thread::sleep;
 use std::time::Duration;
+use tokio::time::sleep;
 
 #[derive(Debug, Snafu)]
 pub struct Error(error::Error);
@@ -91,14 +91,14 @@ impl SnapshotWaiter {
             max_attempts,
             duration_between_attempts,
         } = wait_params;
-        let mut successes = 0;
-        let mut attempts = 0;
+        let mut successes: u32 = 0;
+        let mut attempts: u32 = 0;
 
         loop {
             attempts += 1;
             // Stop if we're over max, unless we're on a success streak, then give it some wiggle room.
             ensure!(
-                (attempts - successes) <= max_attempts,
+                (attempts - successes) <= u32::from(max_attempts),
                 error::MaxAttemptsSnafu { max_attempts }
             );
 
@@ -121,7 +121,7 @@ impl SnapshotWaiter {
                                 // Success; check if we have enough to declare victory.
                                 saw_it = true;
                                 successes += 1;
-                                if successes >= successes_required {
+                                if successes >= u32::from(successes_required) {
                                     return Ok(());
                                 }
                                 break;
@@ -140,7 +140,7 @@ impl SnapshotWaiter {
                 // Did not receive list; reset success count and try again (if we have spare attempts)
                 successes = 0;
             };
-            sleep(duration_between_attempts);
+            sleep(duration_between_attempts).await;
         }
     }
 }
@@ -166,5 +166,60 @@ mod error {
 
         #[snafu(display("Failed to reach desired state within {} attempts", max_attempts))]
         MaxAttempts { max_attempts: u8 },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn default_values() {
+        let params = WaitParams::default();
+        assert_eq!(params.state, "completed");
+        assert_eq!(params.successes_required, 3);
+        assert_eq!(params.max_attempts, 90);
+        assert_eq!(params.duration_between_attempts, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn new_with_all_none() {
+        let params = WaitParams::new(None, None, None, None);
+        let defaults = WaitParams::default();
+        assert_eq!(params.state, defaults.state);
+        assert_eq!(params.successes_required, defaults.successes_required);
+        assert_eq!(params.max_attempts, defaults.max_attempts);
+        assert_eq!(
+            params.duration_between_attempts,
+            defaults.duration_between_attempts
+        );
+    }
+
+    #[test]
+    fn new_overrides_all() {
+        let params = WaitParams::new(
+            Some("pending".to_string()),
+            Some(5),
+            Some(10),
+            Some(Duration::from_secs(10)),
+        );
+        assert_eq!(params.state, "pending");
+        assert_eq!(params.successes_required, 5);
+        assert_eq!(params.max_attempts, 10);
+        assert_eq!(params.duration_between_attempts, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn new_partial_override() {
+        let params = WaitParams::new(Some("pending".to_string()), None, Some(50), None);
+        let defaults = WaitParams::default();
+        assert_eq!(params.state, "pending");
+        assert_eq!(params.successes_required, defaults.successes_required);
+        assert_eq!(params.max_attempts, 50);
+        assert_eq!(
+            params.duration_between_attempts,
+            defaults.duration_between_attempts
+        );
     }
 }

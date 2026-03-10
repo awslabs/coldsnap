@@ -69,7 +69,8 @@ impl SnapshotDownloader {
 
         let snapshot: Snapshot = self.list_snapshot_blocks(snapshot_id).await?;
 
-        let mut target = if BlockDeviceTarget::is_valid(path).await? {
+        let is_block_device = BlockDeviceTarget::is_valid(path).await?;
+        let mut target = if is_block_device {
             BlockDeviceTarget::new_target(path)?
         } else {
             FileTarget::new_target(path)?
@@ -132,6 +133,7 @@ impl SnapshotDownloader {
             progress_bar,
             Arc::clone(&completed_blocks),
             path,
+            is_block_device,
         )
         .await?;
 
@@ -162,6 +164,7 @@ impl SnapshotDownloader {
         progress_bar: Option<ProgressBar>,
         completed_blocks: Arc<Mutex<HashSet<i32>>>,
         manifest_path: &Path,
+        is_block_device: bool,
     ) -> Result<()> {
         let block_errors = Arc::new(Mutex::new(BTreeMap::new()));
 
@@ -223,6 +226,7 @@ impl SnapshotDownloader {
                     progress_bar: Arc::clone(&progress_bar),
                     ebs_client: self.ebs_client.clone(),
                     completed_blocks: Arc::clone(&completed_blocks),
+                    is_block_device,
                 });
             }
         }
@@ -480,9 +484,10 @@ impl SnapshotDownloader {
                 target: "u64",
             })?;
 
-        // Blocks of all zeroes can be omitted from the file.
+        // Blocks of all zeroes can be omitted from sparse files, but must be
+        // explicitly written to block devices since they may contain old data.
         let sparse = block_data.iter().all(|&byte| byte == 0u8);
-        if sparse {
+        if sparse && !context.is_block_device {
             if let Some(ref progress_bar) = *context.progress_bar {
                 progress_bar.inc(block_size_u64);
             }
@@ -587,9 +592,20 @@ impl DownloadManifest {
         let manifest_path = Self::manifest_path(download_path);
         let data = serde_json::to_string(self)
             .context(error::SerializeManifestSnafu { path: &manifest_path })?;
-        let mut file = std::fs::File::create(&manifest_path)
+        // Write to a temporary file and rename atomically to avoid corrupting
+        // the manifest if the process is killed mid-write.
+        let tmp_path = {
+            let mut tmp = manifest_path.as_os_str().to_owned();
+            tmp.push(".tmp");
+            PathBuf::from(tmp)
+        };
+        let mut file = std::fs::File::create(&tmp_path)
             .context(error::WriteManifestSnafu { path: &manifest_path })?;
         file.write_all(data.as_bytes())
+            .context(error::WriteManifestSnafu { path: &manifest_path })?;
+        file.sync_all()
+            .context(error::WriteManifestSnafu { path: &manifest_path })?;
+        std::fs::rename(&tmp_path, &manifest_path)
             .context(error::WriteManifestSnafu { path: &manifest_path })?;
         Ok(())
     }
@@ -615,6 +631,7 @@ struct BlockContext {
     progress_bar: Arc<Option<ProgressBar>>,
     ebs_client: EbsClient,
     completed_blocks: Arc<Mutex<HashSet<i32>>>,
+    is_block_device: bool,
 }
 
 /// Holds snapshot metadata needed for periodic manifest saves.
@@ -1005,5 +1022,87 @@ mod error {
             block_index: i32,
             block_size: i32,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn sample_manifest() -> DownloadManifest {
+        DownloadManifest {
+            snapshot_id: "snap-1234567890abcdef0".to_string(),
+            volume_size: 8,
+            block_size: 524288,
+            total_blocks: 100,
+            completed_blocks: HashSet::from([0, 1, 2, 50]),
+        }
+    }
+
+    #[test]
+    fn manifest_path_suffix() {
+        let path = Path::new("/tmp/my-snapshot.img");
+        let result = DownloadManifest::manifest_path(path);
+        assert_eq!(result, PathBuf::from("/tmp/my-snapshot.img.coldsnap-manifest"));
+    }
+
+    #[test]
+    fn load_returns_none_when_missing() {
+        let dir = tempdir().unwrap();
+        let fake_path = dir.path().join("nonexistent.img");
+        let loaded = DownloadManifest::load(&fake_path).unwrap();
+        assert!(loaded.is_none());
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let dir = tempdir().unwrap();
+        let download_path = dir.path().join("snapshot.img");
+        let manifest = sample_manifest();
+        manifest.save(&download_path).unwrap();
+
+        let loaded = DownloadManifest::load(&download_path).unwrap().expect("manifest should exist");
+        assert_eq!(loaded.snapshot_id, manifest.snapshot_id);
+        assert_eq!(loaded.volume_size, manifest.volume_size);
+        assert_eq!(loaded.block_size, manifest.block_size);
+        assert_eq!(loaded.total_blocks, manifest.total_blocks);
+        assert_eq!(loaded.completed_blocks, manifest.completed_blocks);
+    }
+
+    #[test]
+    fn save_is_atomic_no_tmp_left() {
+        let dir = tempdir().unwrap();
+        let download_path = dir.path().join("snapshot.img");
+        let manifest = sample_manifest();
+        manifest.save(&download_path).unwrap();
+
+        let tmp_path = {
+            let mut tmp = DownloadManifest::manifest_path(&download_path).as_os_str().to_owned();
+            tmp.push(".tmp");
+            PathBuf::from(tmp)
+        };
+        assert!(!tmp_path.exists(), ".tmp file should not remain after save");
+    }
+
+    #[test]
+    fn remove_cleans_up() {
+        let dir = tempdir().unwrap();
+        let download_path = dir.path().join("snapshot.img");
+        let manifest = sample_manifest();
+        manifest.save(&download_path).unwrap();
+
+        let manifest_path = DownloadManifest::manifest_path(&download_path);
+        assert!(manifest_path.exists());
+
+        DownloadManifest::remove(&download_path).unwrap();
+        assert!(!manifest_path.exists(), "manifest file should be removed");
+    }
+
+    #[test]
+    fn remove_is_noop_when_missing() {
+        let dir = tempdir().unwrap();
+        let download_path = dir.path().join("nonexistent.img");
+        DownloadManifest::remove(&download_path).unwrap();
     }
 }

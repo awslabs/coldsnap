@@ -88,3 +88,71 @@ pub(crate) fn error_stack(e: &dyn std::error::Error, n: u16) -> String {
     }
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::error_stack;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct TestError {
+        msg: String,
+        source: Option<Box<TestError>>,
+    }
+
+    impl fmt::Display for TestError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.msg)
+        }
+    }
+
+    impl std::error::Error for TestError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source.as_ref().map(|e| e.as_ref() as &dyn std::error::Error)
+        }
+    }
+
+    fn simple(msg: &str) -> TestError {
+        TestError { msg: msg.to_string(), source: None }
+    }
+
+    fn chained(msg: &str, source: TestError) -> TestError {
+        TestError { msg: msg.to_string(), source: Some(Box::new(source)) }
+    }
+
+    #[test]
+    fn no_source_n_zero() {
+        let e = simple("top");
+        assert_eq!(error_stack(&e, 0), "top");
+    }
+
+    #[test]
+    fn no_source_n_positive() {
+        let e = simple("top");
+        assert_eq!(error_stack(&e, 5), "top");
+    }
+
+    #[test]
+    fn chain_of_three_n_one() {
+        let e = chained("top", chained("mid", simple("bottom")));
+        assert_eq!(error_stack(&e, 1), "top: mid");
+    }
+
+    #[test]
+    fn chain_of_three_n_two() {
+        let e = chained("top", chained("mid", simple("bottom")));
+        assert_eq!(error_stack(&e, 2), "top: mid: bottom");
+    }
+
+    #[test]
+    fn chain_of_three_n_exceeds_depth() {
+        let e = chained("top", chained("mid", simple("bottom")));
+        assert_eq!(error_stack(&e, 10), "top: mid: bottom");
+    }
+
+    #[test]
+    fn n_zero_ignores_sources() {
+        let e = chained("top", chained("mid", simple("bottom")));
+        assert_eq!(error_stack(&e, 0), "top");
+    }
+}
