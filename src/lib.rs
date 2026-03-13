@@ -17,7 +17,7 @@ let client = EbsClient::new(&aws_config::from_env().region("us-west-2").load().a
 let downloader = SnapshotDownloader::new(client);
 let path = Path::new("./disk.img");
 
-downloader.download_to_file("snap-1234", &path, None)
+downloader.download_to_file("snap-1234", &path, None, None)
     .await
     .expect("failed to download snapshot");
 # }
@@ -61,6 +61,7 @@ mod download;
 mod upload;
 mod wait;
 
+pub use download::CheckpointBehavior;
 pub use download::Error as DownloadError;
 pub use download::SnapshotDownloader;
 

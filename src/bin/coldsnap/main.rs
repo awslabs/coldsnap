@@ -16,7 +16,8 @@ use aws_types::app_name::AppName;
 use aws_types::region::Region;
 use aws_types::SdkConfig;
 use coldsnap::{
-    SnapshotDownloader, SnapshotUploader, SnapshotWaiter, UploadZeroBlocks, WaitParams,
+    CheckpointBehavior, SnapshotDownloader, SnapshotUploader, SnapshotWaiter, UploadZeroBlocks,
+    WaitParams,
 };
 use env_logger::{Builder, Env};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -62,6 +63,11 @@ async fn run() -> Result<()> {
             );
 
             let progress_bar = build_progress_bar(download_args.no_progress, "Downloading");
+            let checkpoint = match (download_args.checkpoint, download_args.keep_checkpoint) {
+                (false, _) => None,
+                (true, false) => Some(CheckpointBehavior::Enable),
+                (true, true) => Some(CheckpointBehavior::EnableAndKeep),
+            };
             debug!(
                 "Downloading snapshot {} to {}",
                 download_args.snapshot_id,
@@ -72,6 +78,7 @@ async fn run() -> Result<()> {
                     &download_args.snapshot_id,
                     &download_args.file,
                     progress_bar?,
+                    checkpoint,
                 )
                 .await
                 .context(error::DownloadSnapshotSnafu)?;
@@ -283,6 +290,14 @@ struct DownloadArgs {
     #[argh(switch)]
     /// disable the progress bar
     no_progress: bool,
+
+    #[argh(switch)]
+    /// enable checkpointing for resumable downloads
+    checkpoint: bool,
+
+    #[argh(switch)]
+    /// keep checkpoint files after successful download (for debugging)
+    keep_checkpoint: bool,
 }
 
 /// Turn a user-specified tag string into a Tag object. Tags must start with 'KEY=' and

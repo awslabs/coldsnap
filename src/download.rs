@@ -13,6 +13,7 @@ use base64::Engine as _;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 use std::collections::BTreeMap;
@@ -21,7 +22,6 @@ use std::io::SeekFrom;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tempfile::NamedTempFile;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
@@ -39,6 +39,18 @@ const SHA256_ALGORITHM: &str = "SHA256";
 // the block information up front in a loop, we ask for the maximum so that we
 // need fewer API calls.
 const LIST_REQUEST_MAX_RESULTS: i32 = 10000;
+const CHECKPOINT_FLUSH_INTERVAL: usize = 100;
+
+/// Specify how checkpointing should be handled for resumable downloads.
+#[derive(Copy, Clone, PartialEq)]
+pub enum CheckpointBehavior {
+    /// Disable checkpointing, ignore existing checkpoint.
+    Disable,
+    /// Enable checkpointing for resumable downloads.
+    Enable,
+    /// Enable checkpointing, keep checkpoint file after successful download.
+    EnableAndKeep,
+}
 
 pub struct SnapshotDownloader {
     ebs_client: EbsClient,
@@ -55,12 +67,15 @@ impl SnapshotDownloader {
     ///   of the snapshot. If the snapshot is sparse, i.e. not all blocks are present, then the file
     ///   will contain holes that return zeroes when read.
     /// * `progress_bar` is optional, since output to the terminal may not be wanted.
+    /// * `checkpoint` specifies checkpointing behavior for resumable downloads.
     pub async fn download_to_file<P: AsRef<Path>>(
         &self,
         snapshot_id: &str,
         path: P,
         progress_bar: Option<ProgressBar>,
+        checkpoint: Option<CheckpointBehavior>,
     ) -> Result<()> {
+        let checkpoint = checkpoint.unwrap_or(CheckpointBehavior::Disable);
         let path = path.as_ref();
         let _ = path
             .file_name()
@@ -69,20 +84,60 @@ impl SnapshotDownloader {
         // Find the overall volume size, the block size, and the metadata we need for each block:
         // the index, which lets us calculate the offset into the volume; and the token, which we
         // need to retrieve it.
-        let snapshot: Snapshot = self.list_snapshot_blocks(snapshot_id).await?;
+        let mut snapshot: Snapshot = self.list_snapshot_blocks(snapshot_id).await?;
+
+        // Check for checkpoint file and filter out already-completed blocks
+        let checkpoint_file = progress_path(path);
+        let mut previously_completed: Vec<i32> = Vec::new();
+        let mut resuming = false;
+
+        let checkpoint_data = match checkpoint != CheckpointBehavior::Disable {
+            true => tokio::fs::read_to_string(&checkpoint_file).await.ok(),
+            false => None,
+        }
+        .and_then(|data| serde_json::from_str::<ProgressFile>(&data).ok())
+        .filter(|p| p.snapshot_id == snapshot_id);
+
+        if let Some(progress) = checkpoint_data {
+            let completed: std::collections::BTreeSet<i32> =
+                progress.completed_blocks.iter().copied().collect();
+            let original_count = snapshot.blocks.len();
+            snapshot.blocks.retain(|b| !completed.contains(&b.index));
+            previously_completed = progress.completed_blocks;
+            debug!(
+                "Resuming download: {} of {} blocks remaining",
+                snapshot.blocks.len(),
+                original_count
+            );
+            resuming = true;
+        }
 
         let mut target = if BlockDeviceTarget::is_valid(path).await? {
             BlockDeviceTarget::new_target(path)?
         } else {
-            // If not block assume file for now
             FileTarget::new_target(path)?
         };
 
-        debug!("Writing {}G to {}...", snapshot.volume_size, path.display());
-        target.grow(snapshot.volume_size * GIBIBYTE).await?;
-        self.write_snapshot_blocks(snapshot, target.write_path()?, progress_bar)
-            .await?;
-        target.finalize()?;
+        if !resuming {
+            debug!("Writing {}G to {}...", snapshot.volume_size, path.display());
+            target.grow(snapshot.volume_size * GIBIBYTE).await?;
+        }
+
+        self.write_snapshot_blocks(
+            snapshot,
+            target.write_path()?,
+            path,
+            progress_bar,
+            checkpoint,
+            previously_completed,
+        )
+        .await?;
+        target.finalize().await?;
+
+        // Clean up checkpoint file on success
+        if checkpoint != CheckpointBehavior::EnableAndKeep {
+            let _ = std::fs::remove_file(&checkpoint_file);
+        }
 
         Ok(())
     }
@@ -91,11 +146,16 @@ impl SnapshotDownloader {
         &self,
         snapshot: Snapshot,
         write_path: &Path,
+        progress_path_base: &Path,
         progress_bar: Option<ProgressBar>,
+        checkpoint: CheckpointBehavior,
+        previously_completed: Vec<i32>,
     ) -> Result<()> {
         // Collect errors encountered while downloading blocks, since we can't
         // return a result directly through `for_each_concurrent`.
         let block_errors = Arc::new(Mutex::new(BTreeMap::new()));
+        let completed_blocks = Arc::new(Mutex::new(previously_completed));
+        let last_flush_count = Arc::new(Mutex::new(0usize));
 
         // We may have a progress bar to update.
         let progress_bar = match progress_bar {
@@ -112,6 +172,9 @@ impl SnapshotDownloader {
             }
             None => Arc::new(None),
         };
+
+        let snapshot_id_for_flush = snapshot.snapshot_id.clone();
+        let progress_path_for_flush = progress_path_base.to_path_buf();
 
         // Create a context for each block that can be moved to another thread.
         let mut block_contexts = Vec::new();
@@ -131,26 +194,59 @@ impl SnapshotDownloader {
         // Distribute the work across a fixed number of concurrent workers.
         // New threads will be created by the runtime as needed, but we'll
         // only process this many blocks at once to limit resource usage.
-        let download = stream::iter(block_contexts).for_each_concurrent(
-            SNAPSHOT_BLOCK_WORKERS,
-            |context| async move {
-                for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
-                    let block_result = self.download_block(&context).await;
-                    let mut block_errors = context.block_errors.lock().expect("poisoned");
-                    if let Err(e) = block_result {
-                        debug!(
-                            "Error downloading block, attempt {} of {}",
-                            i + 1,
-                            SNAPSHOT_BLOCK_ATTEMPTS
-                        );
-                        block_errors.insert(context.block_index, e);
-                        continue;
+        let download =
+            stream::iter(block_contexts).for_each_concurrent(SNAPSHOT_BLOCK_WORKERS, |context| {
+                let completed_blocks = Arc::clone(&completed_blocks);
+                let last_flush_count = Arc::clone(&last_flush_count);
+                let snapshot_id = snapshot_id_for_flush.clone();
+                let progress_file_path = progress_path_for_flush.clone();
+                async move {
+                    for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                        let block_result = self.download_block(&context).await;
+                        {
+                            let mut block_errors = context.block_errors.lock().expect("poisoned");
+                            if let Err(e) = block_result {
+                                debug!(
+                                    "Error downloading block, attempt {} of {}",
+                                    i + 1,
+                                    SNAPSHOT_BLOCK_ATTEMPTS
+                                );
+                                block_errors.insert(context.block_index, e);
+                                continue;
+                            }
+                            block_errors.remove(&context.block_index);
+                        }
+
+                        if checkpoint == CheckpointBehavior::Disable {
+                            break;
+                        }
+
+                        // Track completion and flush checkpoint periodically
+                        let completed_count = {
+                            let mut completed = completed_blocks.lock().expect("poisoned");
+                            completed.push(context.block_index);
+                            completed.len()
+                        };
+
+                        let should_flush = {
+                            let mut last_flush = last_flush_count.lock().expect("poisoned");
+                            if completed_count - *last_flush >= CHECKPOINT_FLUSH_INTERVAL {
+                                *last_flush = completed_count;
+                                true
+                            } else {
+                                false
+                            }
+                        };
+
+                        if should_flush {
+                            let blocks: Vec<i32> =
+                                completed_blocks.lock().expect("poisoned").clone();
+                            write_progress(&progress_file_path, &snapshot_id, &blocks).await;
+                        }
+                        break;
                     }
-                    block_errors.remove(&context.block_index);
-                    break;
                 }
-            },
-        );
+            });
         download.await;
 
         // At this point, all the concurrent jobs have finished, so all of the Arcs we copied have
@@ -165,7 +261,14 @@ impl SnapshotDownloader {
             .expect("poisoned");
         let block_errors_count = block_errors.keys().len();
         if block_errors_count != 0 {
-            let error_report: String = block_errors.values().map(|e| e.to_string()).collect();
+            // Final flush before returning error
+            if checkpoint != CheckpointBehavior::Disable {
+                let blocks: Vec<i32> = completed_blocks.lock().expect("poisoned").clone();
+                write_progress(progress_path_base, &snapshot.snapshot_id, &blocks).await;
+            }
+
+            let failed_blocks: Vec<i32> = block_errors.keys().copied().collect();
+            let error_report = format!("blocks {:?}", failed_blocks);
             error::GetSnapshotBlocksSnafu {
                 error_count: block_errors_count,
                 snapshot_id: snapshot.snapshot_id,
@@ -422,7 +525,7 @@ trait SnapshotWriteTarget {
     fn write_path(&self) -> Result<&Path>;
 
     // persist the contents to disk
-    fn finalize(&mut self) -> Result<()>;
+    async fn finalize(&mut self) -> Result<()>;
 }
 
 /// Implements file operations for block devices.
@@ -480,7 +583,7 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
     }
 
     // no-op
-    fn finalize(&mut self) -> Result<()> {
+    async fn finalize(&mut self) -> Result<()> {
         Ok(())
     }
 }
@@ -488,15 +591,17 @@ impl SnapshotWriteTarget for BlockDeviceTarget {
 /// Implements file operations for filesystem files.
 struct FileTarget {
     path: PathBuf,
-    temp_file: Option<NamedTempFile>,
+    partial_path: PathBuf,
 }
 
 impl FileTarget {
     fn new_target<P: AsRef<Path>>(path: P) -> Result<Box<dyn SnapshotWriteTarget>> {
         let path = path.as_ref();
+        let mut partial_path = path.as_os_str().to_owned();
+        partial_path.push(".partial");
         Ok(Box::new(FileTarget {
             path: path.into(),
-            temp_file: None,
+            partial_path: PathBuf::from(partial_path),
         }))
     }
 }
@@ -505,59 +610,61 @@ impl FileTarget {
 impl SnapshotWriteTarget for FileTarget {
     // truncate file to desired size
     async fn grow(&mut self, length: i64) -> Result<()> {
-        let path = self.path.as_path();
+        let file_len = u64::try_from(length).with_context(|_| error::ConvertNumberSnafu {
+            what: "file length",
+            number: length.to_string(),
+            target: "u64",
+        })?;
 
-        // Create a temporary file and extend it to the required size.
-        let target_dir = path
-            .parent()
-            .context(error::ValidateParentDirectorySnafu { path })?;
+        let file = std::fs::File::create(&self.partial_path).context(error::CreateFileSnafu {
+            path: &self.partial_path,
+        })?;
 
-        let temp_file = NamedTempFile::new_in(target_dir)
-            .context(error::CreateTempFileSnafu { path: target_dir })?;
-
-        let temp_file_len = length;
-        let temp_file_len =
-            u64::try_from(temp_file_len).with_context(|_| error::ConvertNumberSnafu {
-                what: "temp file length",
-                number: temp_file_len.to_string(),
-                target: "u64",
-            })?;
-
-        temp_file
-            .as_file()
-            .set_len(temp_file_len)
-            .context(error::ExtendTempFileSnafu {
-                path: temp_file.as_ref(),
-            })?;
-
-        self.temp_file.replace(temp_file);
+        file.set_len(file_len).context(error::ExtendFileSnafu {
+            path: &self.partial_path,
+        })?;
 
         Ok(())
     }
 
     fn write_path(&self) -> Result<&Path> {
-        let write_path = self
-            .temp_file
-            .as_ref()
-            .context(error::MissingTempFileSnafu {})?;
-
-        Ok(write_path.as_ref())
+        Ok(self.partial_path.as_path())
     }
 
     // persist file to destination
-    fn finalize(&mut self) -> Result<()> {
-        let temp_file = self
-            .temp_file
-            .take()
-            .context(error::MissingTempFileSnafu {})?;
-
-        let path = self.path.as_path();
-        temp_file
-            .into_temp_path()
-            .persist(path)
-            .context(error::PersistTempFileSnafu { path })?;
-
+    async fn finalize(&mut self) -> Result<()> {
+        tokio::fs::rename(&self.partial_path, &self.path)
+            .await
+            .context(error::RenameFileSnafu {
+                from: &self.partial_path,
+                to: &self.path,
+            })?;
         Ok(())
+    }
+}
+
+/// Checkpoint progress file for resumable downloads.
+#[derive(Serialize, Deserialize)]
+struct ProgressFile {
+    snapshot_id: String,
+    completed_blocks: Vec<i32>,
+}
+
+/// Returns the path to the checkpoint progress file for a given target path.
+fn progress_path(target_path: &Path) -> PathBuf {
+    let mut path = target_path.as_os_str().to_owned();
+    path.push(".coldsnap-progress");
+    PathBuf::from(path)
+}
+
+/// Writes checkpoint progress to disk.
+async fn write_progress(target_path: &Path, snapshot_id: &str, completed_blocks: &[i32]) {
+    let progress = ProgressFile {
+        snapshot_id: snapshot_id.to_string(),
+        completed_blocks: completed_blocks.to_vec(),
+    };
+    if let Ok(data) = serde_json::to_string(&progress) {
+        let _ = tokio::fs::write(progress_path(target_path), data).await;
     }
 }
 
@@ -598,26 +705,24 @@ mod error {
         #[snafu(display("Failed to find parent directory for file name '{}'", path.display()))]
         ValidateParentDirectory { path: PathBuf },
 
-        #[snafu(display("Failed to create temporary file in '{}': {}", path.display(), source))]
-        CreateTempFile {
+        #[snafu(display("Failed to create file '{}': {}", path.display(), source))]
+        CreateFile {
             path: PathBuf,
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to extend temporary file '{}': {}", path.display(), source))]
-        ExtendTempFile {
+        #[snafu(display("Failed to extend file '{}': {}", path.display(), source))]
+        ExtendFile {
             path: PathBuf,
             source: std::io::Error,
         },
 
-        #[snafu(display("Failed to persist temporary file '{}': {}", path.display(), source))]
-        PersistTempFile {
-            path: PathBuf,
-            source: tempfile::PathPersistError,
+        #[snafu(display("Failed to rename '{}' to '{}': {}", from.display(), to.display(), source))]
+        RenameFile {
+            from: PathBuf,
+            to: PathBuf,
+            source: std::io::Error,
         },
-
-        #[snafu(display("Missing temporary file"))]
-        MissingTempFile {},
 
         #[snafu(display("Failed to list snapshot blocks '{snapshot_id}': {source}", source = crate::error_stack(source, 2)))]
         ListSnapshotBlocks {
@@ -757,5 +862,84 @@ mod error {
             target: String,
             source: std::num::TryFromIntError,
         },
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn progress_path_appends_suffix() {
+        let path = Path::new("/tmp/disk.img");
+        let progress = progress_path(path);
+        assert_eq!(progress, PathBuf::from("/tmp/disk.img.coldsnap-progress"));
+    }
+
+    #[test]
+    fn progress_file_roundtrip() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("disk.img");
+
+        let progress = ProgressFile {
+            snapshot_id: "snap-123".to_string(),
+            completed_blocks: vec![0, 5, 10],
+        };
+
+        let path = progress_path(&target);
+        let data = serde_json::to_string(&progress).unwrap();
+        std::fs::write(&path, &data).unwrap();
+
+        let loaded: ProgressFile =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        assert_eq!(loaded.snapshot_id, "snap-123");
+        assert_eq!(loaded.completed_blocks, vec![0, 5, 10]);
+    }
+
+    #[test]
+    fn progress_file_filters_completed_blocks() {
+        let all_blocks = vec![
+            SnapshotBlock {
+                index: 0,
+                token: "a".into(),
+            },
+            SnapshotBlock {
+                index: 1,
+                token: "b".into(),
+            },
+            SnapshotBlock {
+                index: 2,
+                token: "c".into(),
+            },
+            SnapshotBlock {
+                index: 3,
+                token: "d".into(),
+            },
+        ];
+
+        let completed: std::collections::BTreeSet<i32> = vec![0, 2].into_iter().collect();
+        let remaining: Vec<_> = all_blocks
+            .into_iter()
+            .filter(|b| !completed.contains(&b.index))
+            .collect();
+
+        assert_eq!(remaining.len(), 2);
+        assert_eq!(remaining[0].index, 1);
+        assert_eq!(remaining[1].index, 3);
+    }
+
+    #[test]
+    fn progress_file_ignores_mismatched_snapshot_id() {
+        let progress = ProgressFile {
+            snapshot_id: "snap-different".to_string(),
+            completed_blocks: vec![0, 1, 2],
+        };
+
+        let current_snapshot_id = "snap-123";
+        let should_resume = progress.snapshot_id == current_snapshot_id;
+
+        assert!(!should_resume);
     }
 }
