@@ -17,9 +17,9 @@ allow = [
     "BSD-3-Clause",
     "BSL-1.0",
     #"CC0-1.0",  # OK but currently unused; commenting to prevent warning
-    #"ISC",  # OK but currently unused; commenting to prevent warning
+    "ISC",
     "MIT",
-    #"OpenSSL", # OK but currently unused; commenting to prevent warning
+    "OpenSSL",
     "Unicode-3.0",
     "Unlicense",
     #"Zlib",  # OK but currently unused; commenting to prevent warning
