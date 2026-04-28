@@ -19,7 +19,7 @@ allow = [
     #"CC0-1.0",  # OK but currently unused; commenting to prevent warning
     "ISC",
     "MIT",
-    "OpenSSL",
+    #"OpenSSL",  # OK but currently unused; commenting to prevent warning
     "Unicode-3.0",
     "Unlicense",
     #"Zlib",  # OK but currently unused; commenting to prevent warning
