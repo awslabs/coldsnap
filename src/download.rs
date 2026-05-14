@@ -12,7 +12,7 @@ use base64::engine::general_purpose::STANDARD as base64_engine;
 use base64::Engine as _;
 use futures::stream::{self, StreamExt};
 use indicatif::ProgressBar;
-use log::debug;
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
@@ -22,8 +22,10 @@ use std::io::SeekFrom;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::time;
 
 #[derive(Debug, Snafu)]
 pub struct Error(error::Error);
@@ -31,7 +33,10 @@ type Result<T> = std::result::Result<T, Error>;
 
 const GIBIBYTE: i64 = 1024 * 1024 * 1024;
 const SNAPSHOT_BLOCK_WORKERS: usize = 64;
-const SNAPSHOT_BLOCK_ATTEMPTS: u8 = 3;
+// How long to wait between attempts; this number * attempt number, in seconds.
+const SNAPSHOT_BLOCK_RETRY_SCALE: u64 = 2;
+// 5 retries with scale 2 gives us 20 seconds of backoff, matching upload behavior.
+const SNAPSHOT_BLOCK_ATTEMPTS: u64 = 5;
 const SHA256_ALGORITHM: &str = "SHA256";
 
 // ListSnapshotBlocks allows us to specify how many blocks are returned in each
@@ -201,15 +206,29 @@ impl SnapshotDownloader {
                 let snapshot_id = snapshot_id_for_flush.clone();
                 let progress_file_path = progress_path_for_flush.clone();
                 async move {
-                    for i in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                    for attempt in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                        if attempt > 0 {
+                            let backoff = Duration::from_secs(attempt * SNAPSHOT_BLOCK_RETRY_SCALE);
+                            debug!(
+                                "block {}: retry {}/{}, backoff {}s",
+                                context.block_index,
+                                attempt,
+                                SNAPSHOT_BLOCK_ATTEMPTS,
+                                backoff.as_secs()
+                            );
+                            time::sleep(backoff).await;
+                        }
+
                         let block_result = self.download_block(&context).await;
                         {
                             let mut block_errors = context.block_errors.lock().expect("poisoned");
                             if let Err(e) = block_result {
-                                debug!(
-                                    "Error downloading block, attempt {} of {}",
-                                    i + 1,
-                                    SNAPSHOT_BLOCK_ATTEMPTS
+                                warn!(
+                                    "block {}: attempt {}/{} failed: {}",
+                                    context.block_index,
+                                    attempt + 1,
+                                    SNAPSHOT_BLOCK_ATTEMPTS,
+                                    e
                                 );
                                 block_errors.insert(context.block_index, e);
                                 continue;
