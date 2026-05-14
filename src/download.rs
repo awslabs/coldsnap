@@ -73,12 +73,14 @@ impl SnapshotDownloader {
     ///   will contain holes that return zeroes when read.
     /// * `progress_bar` is optional, since output to the terminal may not be wanted.
     /// * `checkpoint` specifies checkpointing behavior for resumable downloads.
+    /// * `workers` overrides the number of concurrent download workers (default: 64).
     pub async fn download_to_file<P: AsRef<Path>>(
         &self,
         snapshot_id: &str,
         path: P,
         progress_bar: Option<ProgressBar>,
         checkpoint: Option<CheckpointBehavior>,
+        workers: Option<usize>,
     ) -> Result<()> {
         let checkpoint = checkpoint.unwrap_or(CheckpointBehavior::Disable);
         let path = path.as_ref();
@@ -135,6 +137,7 @@ impl SnapshotDownloader {
             progress_bar,
             checkpoint,
             previously_completed,
+            workers,
         )
         .await?;
         target.finalize().await?;
@@ -147,6 +150,7 @@ impl SnapshotDownloader {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn write_snapshot_blocks(
         &self,
         snapshot: Snapshot,
@@ -155,6 +159,7 @@ impl SnapshotDownloader {
         progress_bar: Option<ProgressBar>,
         checkpoint: CheckpointBehavior,
         previously_completed: Vec<i32>,
+        workers: Option<usize>,
     ) -> Result<()> {
         // Collect errors encountered while downloading blocks, since we can't
         // return a result directly through `for_each_concurrent`.
@@ -199,73 +204,74 @@ impl SnapshotDownloader {
         // Distribute the work across a fixed number of concurrent workers.
         // New threads will be created by the runtime as needed, but we'll
         // only process this many blocks at once to limit resource usage.
-        let download =
-            stream::iter(block_contexts).for_each_concurrent(SNAPSHOT_BLOCK_WORKERS, |context| {
-                let completed_blocks = Arc::clone(&completed_blocks);
-                let last_flush_count = Arc::clone(&last_flush_count);
-                let snapshot_id = snapshot_id_for_flush.clone();
-                let progress_file_path = progress_path_for_flush.clone();
-                async move {
-                    for attempt in 0..SNAPSHOT_BLOCK_ATTEMPTS {
-                        if attempt > 0 {
-                            let backoff = Duration::from_secs(attempt * SNAPSHOT_BLOCK_RETRY_SCALE);
-                            debug!(
-                                "block {}: retry {}/{}, backoff {}s",
+        let worker_count = workers.unwrap_or(SNAPSHOT_BLOCK_WORKERS);
+        ensure!(worker_count > 0, error::InvalidWorkerCountSnafu);
+        debug!("Using {} concurrent download workers", worker_count);
+        let download = stream::iter(block_contexts).for_each_concurrent(worker_count, |context| {
+            let completed_blocks = Arc::clone(&completed_blocks);
+            let last_flush_count = Arc::clone(&last_flush_count);
+            let snapshot_id = snapshot_id_for_flush.clone();
+            let progress_file_path = progress_path_for_flush.clone();
+            async move {
+                for attempt in 0..SNAPSHOT_BLOCK_ATTEMPTS {
+                    if attempt > 0 {
+                        let backoff = Duration::from_secs(attempt * SNAPSHOT_BLOCK_RETRY_SCALE);
+                        debug!(
+                            "block {}: retry {}/{}, backoff {}s",
+                            context.block_index,
+                            attempt,
+                            SNAPSHOT_BLOCK_ATTEMPTS,
+                            backoff.as_secs()
+                        );
+                        time::sleep(backoff).await;
+                    }
+
+                    let block_result = self.download_block(&context).await;
+                    {
+                        let mut block_errors = context.block_errors.lock().expect("poisoned");
+                        if let Err(e) = block_result {
+                            warn!(
+                                "block {}: attempt {}/{} failed: {}",
                                 context.block_index,
-                                attempt,
+                                attempt + 1,
                                 SNAPSHOT_BLOCK_ATTEMPTS,
-                                backoff.as_secs()
+                                e
                             );
-                            time::sleep(backoff).await;
+                            block_errors.insert(context.block_index, e);
+                            continue;
                         }
+                        block_errors.remove(&context.block_index);
+                    }
 
-                        let block_result = self.download_block(&context).await;
-                        {
-                            let mut block_errors = context.block_errors.lock().expect("poisoned");
-                            if let Err(e) = block_result {
-                                warn!(
-                                    "block {}: attempt {}/{} failed: {}",
-                                    context.block_index,
-                                    attempt + 1,
-                                    SNAPSHOT_BLOCK_ATTEMPTS,
-                                    e
-                                );
-                                block_errors.insert(context.block_index, e);
-                                continue;
-                            }
-                            block_errors.remove(&context.block_index);
-                        }
-
-                        if checkpoint == CheckpointBehavior::Disable {
-                            break;
-                        }
-
-                        // Track completion and flush checkpoint periodically
-                        let completed_count = {
-                            let mut completed = completed_blocks.lock().expect("poisoned");
-                            completed.push(context.block_index);
-                            completed.len()
-                        };
-
-                        let should_flush = {
-                            let mut last_flush = last_flush_count.lock().expect("poisoned");
-                            if completed_count - *last_flush >= CHECKPOINT_FLUSH_INTERVAL {
-                                *last_flush = completed_count;
-                                true
-                            } else {
-                                false
-                            }
-                        };
-
-                        if should_flush {
-                            let blocks: Vec<i32> =
-                                completed_blocks.lock().expect("poisoned").clone();
-                            write_progress(&progress_file_path, &snapshot_id, &blocks).await;
-                        }
+                    if checkpoint == CheckpointBehavior::Disable {
                         break;
                     }
+
+                    // Track completion and flush checkpoint periodically
+                    let completed_count = {
+                        let mut completed = completed_blocks.lock().expect("poisoned");
+                        completed.push(context.block_index);
+                        completed.len()
+                    };
+
+                    let should_flush = {
+                        let mut last_flush = last_flush_count.lock().expect("poisoned");
+                        if completed_count - *last_flush >= CHECKPOINT_FLUSH_INTERVAL {
+                            *last_flush = completed_count;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                    if should_flush {
+                        let blocks: Vec<i32> = completed_blocks.lock().expect("poisoned").clone();
+                        write_progress(&progress_file_path, &snapshot_id, &blocks).await;
+                    }
+                    break;
                 }
-            });
+            }
+        });
         download.await;
 
         // At this point, all the concurrent jobs have finished, so all of the Arcs we copied have
@@ -881,6 +887,9 @@ mod error {
             target: String,
             source: std::num::TryFromIntError,
         },
+
+        #[snafu(display("Worker count must be greater than zero"))]
+        InvalidWorkerCount,
     }
 }
 
