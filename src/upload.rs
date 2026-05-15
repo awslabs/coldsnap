@@ -258,7 +258,7 @@ impl SnapshotUploader {
         // New threads will be created by the runtime as needed, but we'll
         // only process this many blocks at once to limit resource usage.
         let worker_count = workers.unwrap_or(SNAPSHOT_BLOCK_WORKERS);
-        assert!(worker_count > 0, "--workers must be greater than zero");
+        ensure!(worker_count > 0, error::InvalidWorkerCountSnafu);
         debug!(
             "Using {} concurrent upload workers across {} client shards",
             worker_count,
@@ -647,6 +647,9 @@ mod error {
             source: std::num::TryFromIntError,
         },
 
+        #[snafu(display("Worker count must be greater than zero"))]
+        InvalidWorkerCount,
+
         #[snafu(display(
             "Overflowed multiplying {} ({}) and {} ({}) inside a {}",
             left,
@@ -723,13 +726,5 @@ mod test {
     #[should_panic(expected = "need at least one EBS client")]
     fn with_client_shards_rejects_empty() {
         SnapshotUploader::with_client_shards(vec![]);
-    }
-
-    #[test]
-    #[should_panic(expected = "--workers must be greater than zero")]
-    fn worker_count_zero_panics() {
-        // Simulates what happens if workers=Some(0) gets past CLI validation.
-        let count: usize = 0;
-        assert!(count > 0, "--workers must be greater than zero");
     }
 }
