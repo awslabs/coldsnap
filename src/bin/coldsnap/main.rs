@@ -93,14 +93,14 @@ async fn run() -> Result<()> {
         }
 
         SubCommand::Upload(upload_args) => {
-            if upload_args.workers == Some(0) {
-                eprintln!("Error: --workers must be greater than zero");
-                std::process::exit(1);
-            }
-            if upload_args.client_shards == Some(0) {
-                eprintln!("Error: --client-shards must be greater than zero");
-                std::process::exit(1);
-            }
+            ensure!(
+                upload_args.workers != Some(0),
+                error::InvalidWorkerCountSnafu
+            );
+            ensure!(
+                upload_args.client_shards != Some(0),
+                error::InvalidClientShardsSnafu
+            );
 
             let num_shards = upload_args.client_shards.unwrap_or(1);
             let uploader = if num_shards <= 1 {
@@ -517,5 +517,8 @@ mod error {
 
         #[snafu(display("--workers must be greater than zero"))]
         InvalidWorkerCount,
+
+        #[snafu(display("--client-shards must be greater than zero"))]
+        InvalidClientShards,
     }
 }
