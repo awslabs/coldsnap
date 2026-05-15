@@ -70,6 +70,11 @@ async fn run() -> Result<()> {
                 (true, false) => Some(CheckpointBehavior::Enable),
                 (true, true) => Some(CheckpointBehavior::EnableAndKeep),
             };
+            ensure!(
+                download_args.workers != Some(0),
+                error::InvalidWorkerCountSnafu
+            );
+
             debug!(
                 "Downloading snapshot {} to {}",
                 download_args.snapshot_id,
@@ -81,6 +86,7 @@ async fn run() -> Result<()> {
                     &download_args.file,
                     progress_bar?,
                     checkpoint,
+                    download_args.workers,
                 )
                 .await
                 .context(error::DownloadSnapshotSnafu)?;
@@ -334,6 +340,10 @@ struct DownloadArgs {
     #[argh(switch)]
     /// keep checkpoint files after successful download (for debugging)
     keep_checkpoint: bool,
+
+    #[argh(option)]
+    /// number of concurrent download workers (default: 64)
+    workers: Option<usize>,
 }
 
 /// Turn a user-specified tag string into a Tag object. Tags must start with 'KEY=' and
@@ -504,5 +514,8 @@ mod error {
 
         #[snafu(display("Failed to wait for snapshot: {}", source))]
         WaitSnapshot { source: coldsnap::WaitError },
+
+        #[snafu(display("--workers must be greater than zero"))]
+        InvalidWorkerCount,
     }
 }
