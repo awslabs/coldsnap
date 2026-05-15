@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-05-15
+### Added
+- Add exponential backoff to download block retries (thanks @jmiumv) [#451]
+- Add configurable `--workers` flag for download (thanks @jmiumv) [#452]
+- Add proper snafu error variants to upload (thanks @jmiumv) [#453]
+
+### Changed
+- Update dependencies [#454]
+
 ## [0.10.0] - 2026-04-28
 ### Added
 - Add support for STS assume role via default credential provider chains [#422]
@@ -131,7 +140,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Everything!
 
-[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.10.0...develop
+[Unreleased]: https://github.com/awslabs/coldsnap/compare/v0.11.0...develop
+[0.11.0]: https://github.com/awslabs/coldsnap/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/awslabs/coldsnap/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/awslabs/coldsnap/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/awslabs/coldsnap/compare/v0.7.0...v0.8.0
@@ -263,3 +273,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#440]: https://github.com/awslabs/coldsnap/pull/440
 [#441]: https://github.com/awslabs/coldsnap/pull/441
 [#445]: https://github.com/awslabs/coldsnap/pull/445
+[#451]: https://github.com/awslabs/coldsnap/pull/451
+[#452]: https://github.com/awslabs/coldsnap/pull/452
+[#453]: https://github.com/awslabs/coldsnap/pull/453
+[#454]: https://github.com/awslabs/coldsnap/pull/454
