@@ -138,6 +138,9 @@ impl SnapshotUploader {
     /// * `zero_blocks` specifies how zero blocks will be handled. If no value is provided
     ///   (`None`), then all blocks will be uploaded.
     /// * `kms_key_id` is the KMS key ARN to use for encryption.
+    /// * `parent_snapshot_id` is the ID of an existing snapshot to record as the parent for EBS
+    ///   snapshot lineage. Cannot be combined with `kms_key_id`, since EBS rejects requests that
+    ///   set both `Encrypted` and `ParentSnapshotId`.
     #[allow(clippy::too_many_arguments)]
     pub async fn upload_from_file<P: AsRef<Path>>(
         &self,
@@ -148,6 +151,7 @@ impl SnapshotUploader {
         progress_bar: Option<ProgressBar>,
         zero_blocks: Option<ZeroBlocks>,
         kms_key_id: Option<String>,
+        parent_snapshot_id: Option<String>,
         workers: Option<usize>,
     ) -> Result<String> {
         let path = path.as_ref();
@@ -184,7 +188,13 @@ impl SnapshotUploader {
         // Start the snapshot, which gives us the ID and block size we need.
         debug!("Uploading {volume_size}G to snapshot...");
         let (snapshot_id, block_size) = self
-            .start_snapshot(volume_size, description, tags, kms_key_id)
+            .start_snapshot(
+                volume_size,
+                description,
+                tags,
+                kms_key_id,
+                parent_snapshot_id,
+            )
             .await?;
         let file_blocks = (file_size + i64::from(block_size - 1)) / i64::from(block_size);
         let file_blocks =
@@ -368,6 +378,7 @@ impl SnapshotUploader {
         description: String,
         tags: Option<Vec<Tag>>,
         kms_key_id: Option<String>,
+        parent_snapshot_id: Option<String>,
     ) -> Result<(String, i32)> {
         let mut request = self.ebs_clients[0]
             .start_snapshot()
@@ -380,6 +391,12 @@ impl SnapshotUploader {
             request = request
                 .set_encrypted(Some(true))
                 .set_kms_key_arn(Some(kms_key_id));
+        }
+
+        // Mutual exclusion with `kms_key_id`/`Encrypted` is enforced by the caller
+        // (`coldsnap` CLI) before this method is reached.
+        if let Some(parent_snapshot_id) = parent_snapshot_id {
+            request = request.set_parent_snapshot_id(Some(parent_snapshot_id));
         }
 
         let start_response = request.send().await.context(error::StartSnapshotSnafu)?;

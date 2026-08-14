@@ -45,4 +45,4 @@ jobs:
       - run: cargo clippy --features ${{ matrix.features }} ${{ matrix.additional_flags }} --locked -- -D warnings --no-deps
       - run: cargo fmt -- --check
       - run: cargo install cargo-deny --locked
-      - run: cargo deny --features ${{ matrix.features }} --no-default-features check --disable-fetch licenses bans sources
+      - run: cargo deny --features ${{ matrix.features }} --no-default-features check licenses bans sources
