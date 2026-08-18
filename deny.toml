@@ -48,8 +48,10 @@ multiple-versions = "deny"
 wildcards = "deny"
 
 skip= [
+    { name = "base64", version = "0.22" },
     { name = "http", version = "0.2" },
     { name = "http-body", version = "0.4" },
+    { name = "syn", version = "2.0" },
 ]
 
 skip-tree = [

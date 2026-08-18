@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-18
+
+### Added
+- Add --parent-snapshot-id flag for snapshot lineage [#467]
+
+### Changed
+- Update dependencies [#468]
+
 ## [0.11.0] - 2026-05-15
 ### Added
 - Add exponential backoff to download block retries (thanks @jmiumv) [#451]
@@ -277,3 +285,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#452]: https://github.com/awslabs/coldsnap/pull/452
 [#453]: https://github.com/awslabs/coldsnap/pull/453
 [#454]: https://github.com/awslabs/coldsnap/pull/454
+[#467]: https://github.com/awslabs/coldsnap/pull/467
+[#468]: https://github.com/awslabs/coldsnap/pull/468
