@@ -124,6 +124,10 @@ async fn run() -> Result<()> {
                     path: upload_args.file
                 }
             );
+            ensure!(
+                !(upload_args.parent_snapshot_id.is_some() && upload_args.kms_key_id.is_some()),
+                error::ParentAndKmsSnafu
+            );
 
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
             let zero_blocks = upload_args
@@ -140,6 +144,7 @@ async fn run() -> Result<()> {
                     progress_bar?,
                     zero_blocks,
                     upload_args.kms_key_id,
+                    upload_args.parent_snapshot_id,
                     upload_args.workers,
                 )
                 .await
@@ -431,6 +436,10 @@ struct UploadArgs {
     /// KMS key ARN to use for encryption.
     kms_key_id: Option<String>,
 
+    #[argh(option)]
+    /// ID of an existing snapshot to record as the parent for EBS snapshot lineage; cannot be combined with --kms-key-id
+    parent_snapshot_id: Option<String>,
+
     #[argh(switch)]
     /// disable the progress bar
     no_progress: bool,
@@ -520,5 +529,8 @@ mod error {
 
         #[snafu(display("--client-shards must be greater than zero"))]
         InvalidClientShards,
+
+        #[snafu(display("--parent-snapshot-id and --kms-key-id cannot be used together (EBS StartSnapshot rejects Encrypted + ParentSnapshotId)"))]
+        ParentAndKms,
     }
 }
