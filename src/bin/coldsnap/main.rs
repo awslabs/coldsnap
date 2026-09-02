@@ -128,6 +128,11 @@ async fn run() -> Result<()> {
                 !(upload_args.parent_snapshot_id.is_some() && upload_args.kms_key_id.is_some()),
                 error::ParentAndKmsSnafu
             );
+            ensure!(
+                !upload_args.omit_zero_blocks
+                    || upload_args.i_acknowledge_that_this_will_almost_certainly_result_in_data_corruption_with_encrypted_ebs_volumes_unless_i_am_100_percent_sure_that_no_on_disk_data_structure_relies_on_literal_zeros_nearly_all_filesystems_do_not_meet_this_requirement,
+                error::OmitZeroBlocksNotAcknowledgedSnafu
+            );
 
             let progress_bar = build_progress_bar(upload_args.no_progress, "Uploading");
             let zero_blocks = upload_args
@@ -452,6 +457,10 @@ struct UploadArgs {
     /// omit blocks of all zeros when uploading
     omit_zero_blocks: bool,
 
+    #[argh(switch, hidden_help)]
+    /// required acknowledgement when using --omit-zero-blocks that omitting literal zeros can corrupt data on encrypted EBS volumes unless you are certain no on-disk data structure relies on literal zeros
+    i_acknowledge_that_this_will_almost_certainly_result_in_data_corruption_with_encrypted_ebs_volumes_unless_i_am_100_percent_sure_that_no_on_disk_data_structure_relies_on_literal_zeros_nearly_all_filesystems_do_not_meet_this_requirement: bool,
+
     #[argh(option)]
     /// number of concurrent upload workers (default: 64)
     workers: Option<usize>,
@@ -532,5 +541,8 @@ mod error {
 
         #[snafu(display("--parent-snapshot-id and --kms-key-id cannot be used together (EBS StartSnapshot rejects Encrypted + ParentSnapshotId)"))]
         ParentAndKms,
+
+        #[snafu(display("--omit-zero-blocks is dangerous and will almost certainly corrupt your data with nearly all filesystems. It requires an additional, purposefully hidden acknowledgement flag to be present before it will run."))]
+        OmitZeroBlocksNotAcknowledged,
     }
 }

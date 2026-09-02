@@ -54,10 +54,27 @@ If you want to add tags to the uploaded snapshot, add `--tag Key=k,Value=v` for 
 $ coldsnap upload snap-1234 --tag "Key=MyKeyName,Value=MyKeyValue" --tag "Key=MyOtherKeyName,Value=MyOtherKeyValue"
 ```
 
-If you want to omit blocks of all zeroes when uploading a snapshot, add `--omit-zero-blocks`.
-This was the historical behavior, but is usually incompatible with encrypted EBS snapshots.
-Applications that write zeroes to blocks will expect to read zeroes back, and for that to work, the blocks must be present in the snapshot.
-If unsure, avoid using this option.
+Omitting blocks of all zeroes when uploading a snapshot is dangerous and will almost certainly corrupt your data with nearly all filesystems.
+If, despite that, you want to omit zero blocks, add `--omit-zero-blocks`.
+
+> [!CAUTION]
+> **Omitting zero blocks will almost certainly corrupt your data with nearly all filesystems.**
+>
+> This was the historical behavior, but it is dangerous and is usually
+> incompatible with encrypted EBS snapshots. When a block is omitted, EBS reads
+> it back as zeroes only if nothing on disk depends on the block being
+> physically present. **Nearly all filesystems and on-disk data structures do
+> not meet that requirement**, so omitting zero blocks will corrupt the
+> resulting volume in ways that may not be detected until much later.
+>
+> Do not use this option unless you are 100% certain that no on-disk data
+> structure in your image relies on literal zeros. If you have any doubt, do not
+> use it.
+>
+> Because of how dangerous this is, `--omit-zero-blocks` on its own will refuse
+> to run: it requires an additional, intentionally undocumented flag to be
+> present as an explicit acknowledgement of the risk. That flag is not shown in
+> `--help` and is not documented here by design.
 
 ```
 $ coldsnap upload disk.img --omit-zero-blocks
